@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 const CartContext = createContext(null);
 
@@ -25,7 +25,7 @@ export function CartProvider({ children }) {
       }
       return [...prev, { ...item, qty: 1 }];
     });
-  }, [canteenId]);
+  }, [canteenId, setCanteenId, setCanteenName, setItems]);
 
   const removeItem = useCallback((itemId) => {
     setItems(prev => {
@@ -40,19 +40,30 @@ export function CartProvider({ children }) {
       }
       return filtered;
     });
-  }, []);
+  }, [setItems, setCanteenId, setCanteenName]);
 
   const clearCart = useCallback(() => {
     setItems([]);
     setCanteenId(null);
     setCanteenName(null);
-  }, []);
+  }, [setItems, setCanteenId, setCanteenName]);
 
-  const total = items.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const count = items.reduce((sum, item) => sum + item.qty, 0);
+  const total = useMemo(() => items.reduce((sum, item) => sum + item.price * item.qty, 0), [items]);
+  const count = useMemo(() => items.reduce((sum, item) => sum + item.qty, 0), [items]);
+
+  const value = useMemo(() => ({ 
+    items, 
+    canteenId, 
+    canteenName, 
+    addItem, 
+    removeItem, 
+    clearCart, 
+    total, 
+    count 
+  }), [items, canteenId, canteenName, addItem, removeItem, clearCart, total, count]);
 
   return (
-    <CartContext.Provider value={{ items, canteenId, canteenName, addItem, removeItem, clearCart, total, count }}>
+    <CartContext.Provider value={value}>
       {children}
     </CartContext.Provider>
   );

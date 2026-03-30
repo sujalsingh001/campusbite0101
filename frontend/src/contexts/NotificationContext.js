@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useEffect, useRef, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -48,7 +48,7 @@ export function NotificationProvider({ children }) {
           }
         }
       } catch (e) {
-        // ignore parse errors for keepalive
+        console.error('Notification parse error:', e);
       }
     };
 
@@ -73,8 +73,10 @@ export function NotificationProvider({ children }) {
     };
   }, [connectSSE]);
 
+  const value = useMemo(() => ({}), []);
+
   return (
-    <NotificationContext.Provider value={{}}>
+    <NotificationContext.Provider value={value}>
       {children}
     </NotificationContext.Provider>
   );

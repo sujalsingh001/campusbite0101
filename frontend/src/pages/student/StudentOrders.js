@@ -24,7 +24,7 @@ export default function StudentOrders() {
     fetchOrders();
     const interval = setInterval(fetchOrders, 5000);
     return () => clearInterval(interval);
-  }, [user, navigate]);
+  }, [user, navigate, setOrders, setLoading]);
 
   if (loading) return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
 

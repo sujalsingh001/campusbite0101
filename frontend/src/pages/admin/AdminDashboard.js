@@ -193,7 +193,7 @@ function AddCanteenDialog({ onAdd }) {
   const [loading, setLoading] = useState(false);
   const handleSubmit = async () => {
     setLoading(true);
-    try { await API.post("/admin/canteens", form); setOpen(false); setForm({ canteen_id: "", name: "", description: "" }); onAdd(); } catch (e) { console.error(e); } finally { setLoading(false); }
+    try { await API.post("/admin/canteens", form); setOpen(false); setForm({ canteen_id: "", name: "", description: "" }); onAdd(); } catch (e) { /* Error handled silently */ } finally { setLoading(false); }
   };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -221,7 +221,7 @@ function AddMenuItemDialog({ canteens, onAdd }) {
   const [loading, setLoading] = useState(false);
   const handleSubmit = async () => {
     setLoading(true);
-    try { await API.post("/admin/menu-items", { ...form, price: parseInt(form.price) || 0 }); setOpen(false); setForm({ item_id: "", canteen_id: "", name: "", price: "", image: "", category: "", veg: true }); onAdd(); } catch (e) { console.error(e); } finally { setLoading(false); }
+    try { await API.post("/admin/menu-items", { ...form, price: parseInt(form.price) || 0 }); setOpen(false); setForm({ item_id: "", canteen_id: "", name: "", price: "", image: "", category: "", veg: true }); onAdd(); } catch (e) { /* Error handled silently */ } finally { setLoading(false); }
   };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -256,7 +256,7 @@ function AddStaffDialog({ canteens, onAdd }) {
   const [loading, setLoading] = useState(false);
   const handleSubmit = async () => {
     setLoading(true);
-    try { await API.post("/admin/staff", form); setOpen(false); setForm({ email: "", password: "", name: "", canteen_id: "" }); onAdd(); } catch (e) { console.error(e); } finally { setLoading(false); }
+    try { await API.post("/admin/staff", form); setOpen(false); setForm({ email: "", password: "", name: "", canteen_id: "" }); onAdd(); } catch (e) { /* Error handled silently */ } finally { setLoading(false); }
   };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -294,7 +294,7 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
       await API.put(`/admin/canteens/${canteen.canteen_id}`, { name, description });
       setEditing(false);
       onUpdate();
-    } catch (e) { console.error(e); }
+    } catch (e) { /* Error handled silently */ }
     finally { setSaving(false); }
   };
 

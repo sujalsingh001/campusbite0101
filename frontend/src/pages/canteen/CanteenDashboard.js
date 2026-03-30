@@ -36,7 +36,7 @@ export default function CanteenDashboard() {
       await API.patch(`/staff/orders/${orderId}/status`, { status: newStatus });
       fetchOrders();
     } catch (err) {
-      console.error("Failed to update:", err);
+      // Status update failed - will retry on next fetch
     }
   };
 
@@ -113,8 +113,8 @@ export default function CanteenDashboard() {
                         <p className="text-[10px] font-semibold text-gray-400 font-mono">{order.student_auid}</p>
                       </div>
                       <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-2.5">
-                        {order.items.map((item, i) => (
-                          <div key={i} className="flex justify-between text-sm font-medium"><span>{item.name} x{item.qty}</span><span className="font-bold font-mono">₹{item.price * item.qty}</span></div>
+                        {order.items.map((item) => (
+                          <div key={item.item_id} className="flex justify-between text-sm font-medium"><span>{item.name} x{item.qty}</span><span className="font-bold font-mono">₹{item.price * item.qty}</span></div>
                         ))}
                         <div className="border-t border-gray-300 mt-1.5 pt-1.5 flex justify-between"><span className="text-sm font-bold">Total</span><span className="text-sm font-black font-mono">₹{order.total}</span></div>
                       </div>

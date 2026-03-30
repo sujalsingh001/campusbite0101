@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import API from '@/lib/api';
 
 const AuthContext = createContext(null);
@@ -20,7 +20,7 @@ export function AuthProvider({ children }) {
     } else {
       setLoading(false);
     }
-  }, []);
+  }, []); // Empty deps is correct - only runs once on mount
 
   const studentLogin = useCallback(async (auid, phone) => {
     const payload = auid ? { auid } : { phone };
@@ -28,29 +28,38 @@ export function AuthProvider({ children }) {
     localStorage.setItem('campusbite_token', data.token);
     setUser(data.user);
     return data;
-  }, []);
+  }, [setUser]);
 
   const staffLogin = useCallback(async (email, password) => {
     const { data } = await API.post('/auth/staff/login', { email, password });
     localStorage.setItem('campusbite_token', data.token);
     setUser(data.user);
     return data;
-  }, []);
+  }, [setUser]);
 
   const adminLogin = useCallback(async (email, password) => {
     const { data } = await API.post('/auth/admin/login', { email, password });
     localStorage.setItem('campusbite_token', data.token);
     setUser(data.user);
     return data;
-  }, []);
+  }, [setUser]);
 
   const logout = useCallback(() => {
     localStorage.removeItem('campusbite_token');
     setUser(null);
-  }, []);
+  }, [setUser]);
+
+  const value = useMemo(() => ({ 
+    user, 
+    loading, 
+    studentLogin, 
+    staffLogin, 
+    adminLogin, 
+    logout 
+  }), [user, loading, studentLogin, staffLogin, adminLogin, logout]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, studentLogin, staffLogin, adminLogin, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

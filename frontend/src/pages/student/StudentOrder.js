@@ -106,8 +106,8 @@ export default function StudentOrder() {
         <div className="card-brutal-sm p-4">
           <h3 className="text-base font-black mb-3" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="order-items-title">Order Details</h3>
           <div className="space-y-2">
-            {order.items.map((item, i) => (
-              <div key={i} className="flex justify-between items-center text-sm font-medium">
+            {order.items.map((item) => (
+              <div key={item.item_id} className="flex justify-between items-center text-sm font-medium">
                 <span className="text-gray-700">{item.name} x {item.qty}</span>
                 <span className="font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>₹{item.price * item.qty}</span>
               </div>
