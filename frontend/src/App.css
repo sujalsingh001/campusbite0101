@@ -106,14 +106,20 @@
   padding: 14px 16px;
   font-weight: 500;
   font-size: 16px;
+  color: black;
   transition: all 0.15s ease;
 }
 .input-brutal:focus {
   outline: none;
   box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.4);
 }
-.input-brutal::placeholder {
-  color: #9CA3AF;
+.input-brutal.bg-gray-800 {
+  background: #1F2937 !important;
+  color: white !important;
+  border-color: #4B5563 !important;
+}
+.input-brutal.bg-gray-800::placeholder {
+  color: #6B7280 !important;
 }
 
 .badge-brutal {
