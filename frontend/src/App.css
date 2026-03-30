@@ -1,0 +1,149 @@
+/* Neo-Brutalist Utility Classes */
+.card-brutal {
+  background: white;
+  border: 3px solid black;
+  border-radius: 12px;
+  box-shadow: 6px 6px 0px 0px rgba(0,0,0,1);
+}
+
+.card-brutal-sm {
+  background: white;
+  border: 2px solid black;
+  border-radius: 10px;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+}
+
+.btn-primary {
+  background: #A3E635;
+  border: 3px solid black;
+  border-radius: 8px;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  font-weight: 700;
+  color: black;
+  padding: 12px 24px;
+  transition: all 0.1s ease;
+  cursor: pointer;
+}
+.btn-primary:hover { background: #bef264; }
+.btn-primary:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.btn-orange {
+  background: #F59218;
+  border: 3px solid #1e293b;
+  border-radius: 8px;
+  box-shadow: 4px 4px 0px 0px rgba(30,41,59,1);
+  font-weight: 700;
+  color: white;
+  padding: 12px 24px;
+  transition: all 0.1s ease;
+  cursor: pointer;
+}
+.btn-orange:hover { background: #f9a83e; }
+.btn-orange:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.btn-secondary {
+  background: white;
+  border: 3px solid black;
+  border-radius: 8px;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  font-weight: 700;
+  color: black;
+  padding: 12px 24px;
+  transition: all 0.1s ease;
+  cursor: pointer;
+}
+.btn-secondary:hover { background: #f9fafb; }
+.btn-secondary:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.btn-pink {
+  background: #F472B6;
+  border: 3px solid black;
+  border-radius: 8px;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  font-weight: 700;
+  color: black;
+  padding: 12px 24px;
+  transition: all 0.1s ease;
+  cursor: pointer;
+}
+.btn-pink:hover { background: #f9a8d4; }
+.btn-pink:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.btn-yellow {
+  background: #FDE047;
+  border: 3px solid black;
+  border-radius: 8px;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  font-weight: 700;
+  color: black;
+  padding: 12px 24px;
+  transition: all 0.1s ease;
+  cursor: pointer;
+}
+.btn-yellow:hover { background: #fef08a; }
+.btn-yellow:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.input-brutal {
+  width: 100%;
+  background: white;
+  border: 3px solid black;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-weight: 500;
+  font-size: 16px;
+  transition: all 0.15s ease;
+}
+.input-brutal:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.4);
+}
+.input-brutal::placeholder {
+  color: #9CA3AF;
+}
+
+.badge-brutal {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 2px solid black;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Mobile wrapper for student panel */
+.mobile-wrapper {
+  max-width: 448px;
+  margin: 0 auto;
+  min-height: 100vh;
+  position: relative;
+  background: #FEFCE8;
+}
+
+@media (min-width: 640px) {
+  .mobile-wrapper {
+    box-shadow: 0 0 60px rgba(0,0,0,0.1);
+  }
+}
+
+/* Status colors */
+.status-placed { background: #FDE047; }
+.status-preparing { background: #60A5FA; }
+.status-ready { background: #4ADE80; }

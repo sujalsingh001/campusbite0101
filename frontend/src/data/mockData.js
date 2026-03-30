@@ -1,0 +1,142 @@
+export const CANTEENS = [
+  { id: 'main', name: 'Main Canteen', description: 'North Indian Meals & Thali', icon: 'UtensilsCrossed' },
+  { id: 'quick', name: 'Quick Bites', description: 'Burgers, Wraps & Fries', icon: 'Flame' },
+  { id: 'juice', name: 'Juice & Shakes', description: 'Fresh Beverages & Snacks', icon: 'CupSoda' },
+  { id: 'south', name: 'South Express', description: 'Dosa, Idli & More', icon: 'Leaf' },
+];
+
+export const MENU_ITEMS = {
+  main: [
+    { id: 'm1', name: 'Veg Thali', price: 80, image: 'https://images.unsplash.com/photo-1742281257687-092746ad6021?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxpbmRpYW4lMjB0aGFsaSUyMGZvb2R8ZW58MHx8fHwxNzc0ODExODE0fDA&ixlib=rb-4.1.0&q=85&w=400', category: 'meals', veg: true },
+    { id: 'm2', name: 'Paneer Thali', price: 100, image: 'https://images.pexels.com/photos/17223838/pexels-photo-17223838.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=400&w=600', category: 'meals', veg: true },
+    { id: 'm3', name: 'Dal Rice', price: 50, image: 'https://images.unsplash.com/photo-1596797038530-2c107229654b?w=400', category: 'meals', veg: true },
+    { id: 'm4', name: 'Chole Bhature', price: 60, image: 'https://images.unsplash.com/photo-1626132647523-66f5bf380027?w=400', category: 'snacks', veg: true },
+    { id: 'm5', name: 'Aloo Paratha', price: 40, image: 'https://images.unsplash.com/photo-1645177628172-a94c1f96e6db?w=400', category: 'snacks', veg: true },
+    { id: 'm6', name: 'Rajma Chawal', price: 55, image: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400', category: 'meals', veg: true },
+  ],
+  quick: [
+    { id: 'q1', name: 'Classic Burger', price: 90, image: 'https://images.unsplash.com/photo-1626842514556-057dbce0379d?crop=entropy&cs=srgb&fm=jpg&w=400', category: 'burgers', veg: false },
+    { id: 'q2', name: 'Veg Wrap', price: 70, image: 'https://images.unsplash.com/photo-1659477483002-c5d0515b58d4?crop=entropy&cs=srgb&fm=jpg&w=400', category: 'wraps', veg: true },
+    { id: 'q3', name: 'French Fries', price: 50, image: 'https://images.pexels.com/photos/4109132/pexels-photo-4109132.jpeg?auto=compress&cs=tinysrgb&w=400', category: 'sides', veg: true },
+    { id: 'q4', name: 'Paneer Tikka Wrap', price: 85, image: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=400', category: 'wraps', veg: true },
+    { id: 'q5', name: 'Cheese Pizza Slice', price: 60, image: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400', category: 'pizza', veg: true },
+    { id: 'q6', name: 'Chicken Burger', price: 110, image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400', category: 'burgers', veg: false },
+  ],
+  juice: [
+    { id: 'j1', name: 'Mango Shake', price: 45, image: 'https://images.unsplash.com/photo-1676689151683-db4bf03c8754?crop=entropy&cs=srgb&fm=jpg&w=400', category: 'shakes', veg: true },
+    { id: 'j2', name: 'Cold Coffee', price: 50, image: 'https://images.pexels.com/photos/17558646/pexels-photo-17558646.jpeg?auto=compress&cs=tinysrgb&w=400', category: 'coffee', veg: true },
+    { id: 'j3', name: 'Fresh Orange Juice', price: 40, image: 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=400', category: 'juices', veg: true },
+    { id: 'j4', name: 'Oreo Shake', price: 60, image: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=400', category: 'shakes', veg: true },
+    { id: 'j5', name: 'Masala Chai', price: 15, image: 'https://images.unsplash.com/photo-1571934811356-5cc061b6821f?w=400', category: 'hot', veg: true },
+    { id: 'j6', name: 'Lemon Soda', price: 25, image: 'https://images.unsplash.com/photo-1523677011781-c91d1bbe2f9e?w=400', category: 'cold', veg: true },
+  ],
+  south: [
+    { id: 's1', name: 'Masala Dosa', price: 50, image: 'https://images.unsplash.com/photo-1630383249896-424e482df921?w=400', category: 'dosa', veg: true },
+    { id: 's2', name: 'Idli Sambar', price: 35, image: 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=400', category: 'breakfast', veg: true },
+    { id: 's3', name: 'Medu Vada', price: 30, image: 'https://images.unsplash.com/photo-1626132647523-66f5bf380027?w=400', category: 'snacks', veg: true },
+    { id: 's4', name: 'Uttapam', price: 45, image: 'https://images.unsplash.com/photo-1567337710282-00832b415979?w=400', category: 'breakfast', veg: true },
+    { id: 's5', name: 'Rava Dosa', price: 55, image: 'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=400', category: 'dosa', veg: true },
+    { id: 's6', name: 'Filter Coffee', price: 20, image: 'https://images.unsplash.com/photo-1610889556528-9a770e32642f?w=400', category: 'hot', veg: true },
+  ],
+};
+
+export const MOCK_ORDERS = [
+  {
+    id: 'ord-001',
+    tokenNumber: 42,
+    canteenId: 'main',
+    canteenName: 'Main Canteen',
+    items: [
+      { name: 'Veg Thali', qty: 1, price: 80 },
+      { name: 'Masala Chai', qty: 2, price: 15 },
+    ],
+    total: 110,
+    status: 'placed',
+    studentAuid: 'AIT24BEIS209',
+    studentName: 'Rahul',
+    createdAt: '2 min ago',
+    estimatedTime: '15 min',
+  },
+  {
+    id: 'ord-002',
+    tokenNumber: 43,
+    canteenId: 'quick',
+    canteenName: 'Quick Bites',
+    items: [
+      { name: 'Classic Burger', qty: 2, price: 90 },
+      { name: 'French Fries', qty: 1, price: 50 },
+    ],
+    total: 230,
+    status: 'preparing',
+    studentAuid: 'AIT24BECS105',
+    studentName: 'Priya',
+    createdAt: '8 min ago',
+    estimatedTime: '10 min',
+  },
+  {
+    id: 'ord-003',
+    tokenNumber: 44,
+    canteenId: 'juice',
+    canteenName: 'Juice & Shakes',
+    items: [
+      { name: 'Cold Coffee', qty: 1, price: 50 },
+      { name: 'Oreo Shake', qty: 1, price: 60 },
+    ],
+    total: 110,
+    status: 'ready',
+    studentAuid: 'AIT24BEME312',
+    studentName: 'Amit',
+    createdAt: '15 min ago',
+    estimatedTime: '5 min',
+  },
+  {
+    id: 'ord-004',
+    tokenNumber: 45,
+    canteenId: 'main',
+    canteenName: 'Main Canteen',
+    items: [
+      { name: 'Paneer Thali', qty: 1, price: 100 },
+    ],
+    total: 100,
+    status: 'placed',
+    studentAuid: 'AIT24BEIT078',
+    studentName: 'Sneha',
+    createdAt: '1 min ago',
+    estimatedTime: '20 min',
+  },
+  {
+    id: 'ord-005',
+    tokenNumber: 46,
+    canteenId: 'south',
+    canteenName: 'South Express',
+    items: [
+      { name: 'Masala Dosa', qty: 2, price: 50 },
+      { name: 'Filter Coffee', qty: 2, price: 20 },
+    ],
+    total: 140,
+    status: 'preparing',
+    studentAuid: 'AIT24BEEE421',
+    studentName: 'Karthik',
+    createdAt: '5 min ago',
+    estimatedTime: '8 min',
+  },
+];
+
+export const ADMIN_STATS = {
+  totalOrders: 156,
+  activeOrders: 12,
+  completedToday: 144,
+  revenue: 14520,
+  canteenStats: [
+    { name: 'Main Canteen', orders: 58, revenue: 5200, status: 'active' },
+    { name: 'Quick Bites', orders: 42, revenue: 4100, status: 'active' },
+    { name: 'Juice & Shakes', orders: 35, revenue: 2800, status: 'active' },
+    { name: 'South Express', orders: 21, revenue: 2420, status: 'active' },
+  ],
+  staffMembers: [
+    { id: 'st1', name: 'Rajesh Kumar', email: 'maincanteen@ait.edu', canteen: 'Main Canteen', role: 'Manager' },
+    { id: 'st2', name: 'Sunita Devi', email: 'quickbites@ait.edu', canteen: 'Quick Bites', role: 'Manager' },
+    { id: 'st3', name: 'Mohammed Ali', email: 'juiceshakes@ait.edu', canteen: 'Juice & Shakes', role: 'Staff' },
+    { id: 'st4', name: 'Lakshmi Nair', email: 'southexpress@ait.edu', canteen: 'South Express', role: 'Manager' },
+  ],
+};
