@@ -21,20 +21,94 @@
         work correctly both with client-side routing and a non-root public URL.
         Learn how to configure a non-root public URL by running `npm run build`.
         -->
-        <title>Emergent | Fullstack App</title>
+        <title>CampusBite</title>
         <style>
-            a[href*="emergent.sh"], #emergent-badge { display: none !important; visibility: hidden !important; }
+            /* Ultra aggressive badge hiding with maximum specificity */
+            body a[href*="emergent"],
+            body a[href*="Emergent"],
+            html body a[href*="emergent"],
+            html body a[href*="Emergent"],
+            a[href*="emergent.sh"],
+            a[href="https://app.emergent.sh/?utm_source=emergent-badge"],
+            #emergent-badge,
+            [id*="emergent-badge"] { 
+                display: none !important; 
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                position: absolute !important;
+                width: 0 !important;
+                height: 0 !important;
+                overflow: hidden !important;
+                z-index: -9999 !important;
+                clip: rect(0,0,0,0) !important;
+            }
         </style>
         <script>
+            // Aggressive badge removal
             (function() {
-                const removeBadge = () => {
-                    document.querySelectorAll('a[href*="emergent.sh"], #emergent-badge').forEach(el => el.remove());
+                const remove = () => {
+                    const selectors = ['a[href*="emergent"]', 'a[href*="Emergent"]', '#emergent-badge', '[id*="emergent"]'];
+                    selectors.forEach(sel => {
+                        document.querySelectorAll(sel).forEach(el => {
+                            if (el && el.parentNode) {
+                                el.style.cssText = 'display: none !important; visibility: hidden !important; opacity: 0 !important;';
+                                try {
+                                    el.parentNode.removeChild(el);
+                                } catch(e) {}
+                            }
+                        });
+                    });
                 };
-                removeBadge();
-                setInterval(removeBadge, 50);
-                document.addEventListener('DOMContentLoaded', removeBadge);
-                new MutationObserver(removeBadge).observe(document.body || document.documentElement, { childList: true, subtree: true });
+                
+                // Inject style tag that overrides inline styles
+                const injectStyle = () => {
+                    if (!document.getElementById('hide-badge-style')) {
+                        const style = document.createElement('style');
+                        style.id = 'hide-badge-style';
+                        style.innerHTML = `
+                            a[href*="emergent"][style] { display: none !important; }
+                            #emergent-badge[style] { display: none !important; }
+                        `;
+                        (document.head || document.documentElement).appendChild(style);
+                    }
+                };
+                
+                // Run immediately and repeatedly
+                injectStyle();
+                remove();
+                setInterval(() => {
+                    injectStyle();
+                    remove();
+                }, 10);
+                
+                // Watch for DOM changes
+                if (typeof MutationObserver !== 'undefined') {
+                    const observer = new MutationObserver(() => {
+                        injectStyle();
+                        remove();
+                    });
+                    const observe = () => {
+                        if (document.body) {
+                            observer.observe(document.body, { childList: true, subtree: true });
+                        } else {
+                            setTimeout(observe, 10);
+                        }
+                    };
+                    observe();
+                }
+                
+                // Also run on load events
+                window.addEventListener('DOMContentLoaded', () => {
+                    injectStyle();
+                    remove();
+                });
+                window.addEventListener('load', () => {
+                    injectStyle();
+                    remove();
+                });
             })();
+            
             window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);
         </script>
     </head>

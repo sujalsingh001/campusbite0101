@@ -1,4 +1,16 @@
 /* Neo-Brutalist Utility Classes */
+
+/* Hide Emergent Badge */
+a[href*="emergent"],
+a[href*="Emergent"],
+a[href="https://app.emergent.sh/?utm_source=emergent-badge"],
+#emergent-badge {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 .card-brutal {
   background: white;
   border: 3px solid black;
