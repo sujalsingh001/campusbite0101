@@ -35,10 +35,6 @@ export default function StudentLogin() {
         setError("Please enter a valid 10-digit phone number");
         return;
       }
-      if (trimmedPhone === "9876543210") {
-        setError("Please enter your actual phone number, not the example");
-        return;
-      }
       setLoading(true);
       try {
         await studentLogin(null, trimmedPhone);
@@ -54,12 +50,6 @@ export default function StudentLogin() {
     const trimmed = auid.trim();
     if (!trimmed) {
       setError("Please enter your AUID");
-      return;
-    }
-
-    // Block only the exact example AUID
-    if (trimmed === "AIT24BEIS073") {
-      setError("Please enter your actual AUID, not the example");
       return;
     }
 
@@ -113,7 +103,7 @@ export default function StudentLogin() {
                 value={auid}
                 onChange={handleAuidChange}
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                placeholder="e.g. AIT24BEIS073"
+                placeholder="Your AUID"
                 className="input-brutal"
                 data-testid="auid-input"
               />
@@ -127,7 +117,7 @@ export default function StudentLogin() {
                   type="text"
                   value={auid}
                   onChange={handleAuidChange}
-                  placeholder="e.g. AIT24BEIS073"
+                  placeholder="Your AUID"
                   className="input-brutal"
                   data-testid="auid-input"
                 />
