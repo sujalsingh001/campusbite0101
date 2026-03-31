@@ -57,8 +57,8 @@ export default function StudentLogin() {
       return;
     }
 
-    // Block example AUIDs
-    if (trimmed === "AIT24BEIS073" || trimmed.startsWith("AIT24BEIS")) {
+    // Block only the exact example AUID
+    if (trimmed === "AIT24BEIS073") {
       setError("Please enter your actual AUID, not the example");
       return;
     }
