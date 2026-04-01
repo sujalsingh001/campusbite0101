@@ -102,9 +102,13 @@ class OrderItem(BaseModel):
 class CreateOrderReq(BaseModel):
     canteen_id: str
     items: List[OrderItem]
+    payment_method: Optional[str] = "none"  # "none" or "qr"
 
 class StatusUpdateReq(BaseModel):
     status: str
+
+class PaymentVerificationReq(BaseModel):
+    action: str  # "verify" or "reject"
 
 class CreateCanteenReq(BaseModel):
     canteen_id: str
@@ -155,10 +159,10 @@ async def get_next_token():
 async def seed_data():
     if await db.canteens.count_documents({}) == 0:
         await db.canteens.insert_many([
-            {"canteen_id": "main", "name": "Main Canteen", "description": "North Indian Meals & Thali", "status": "active"},
-            {"canteen_id": "quick", "name": "Quick Bites", "description": "Burgers, Wraps & Fries", "status": "active"},
-            {"canteen_id": "juice", "name": "Juice & Shakes", "description": "Fresh Beverages & Snacks", "status": "active"},
-            {"canteen_id": "south", "name": "South Express", "description": "Dosa, Idli & More", "status": "active"},
+            {"canteen_id": "main", "name": "Main Canteen", "description": "North Indian Meals & Thali", "status": "active", "upi_id": "maincanteen@paytm", "qr_code": "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa=maincanteen@paytm&pn=MainCanteen"},
+            {"canteen_id": "quick", "name": "Quick Bites", "description": "Burgers, Wraps & Fries", "status": "active", "upi_id": "quickbites@paytm", "qr_code": "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa=quickbites@paytm&pn=QuickBites"},
+            {"canteen_id": "juice", "name": "Juice & Shakes", "description": "Fresh Beverages & Snacks", "status": "active", "upi_id": "juiceshakes@paytm", "qr_code": "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa=juiceshakes@paytm&pn=JuiceShakes"},
+            {"canteen_id": "south", "name": "South Express", "description": "Dosa, Idli & More", "status": "active", "upi_id": "southexpress@paytm", "qr_code": "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa=southexpress@paytm&pn=SouthExpress"},
         ])
         logger.info("Seeded canteens")
 
@@ -324,12 +328,18 @@ async def create_order(req: CreateOrderReq, request: Request):
     est_minutes = max(5, min(30, (pending + 1) * 5))
     total = sum(i.price * i.qty for i in req.items)
     student_identifier = payload.get("auid") or payload.get("phone", "unknown")
+    
+    # Determine payment status based on method
+    payment_status = "pending" if req.payment_method == "qr" else "none"
+    
     order_doc = {
         "order_id": str(uuid.uuid4()), "token_number": token_number,
         "canteen_id": req.canteen_id, "canteen_name": canteen["name"],
         "student_auid": student_identifier,
         "items": [i.model_dump() for i in req.items],
         "total": total, "status": "placed",
+        "payment_method": req.payment_method or "none",
+        "payment_status": payment_status,
         "estimated_time": f"{est_minutes} min",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -422,6 +432,23 @@ async def update_item_category(item_id: str, category: str, request: Request):
         raise HTTPException(404, "Item not found or not yours")
     await db.menu_items.update_one({"item_id": item_id}, {"$set": {"category": category}})
     return {"item_id": item_id, "category": category}
+
+@api_router.patch("/staff/orders/{order_id}/payment")
+async def verify_payment(order_id: str, req: PaymentVerificationReq, request: Request):
+    payload = await get_current_user(request)
+    if payload["role"] != "canteen_staff":
+        raise HTTPException(403, "Forbidden")
+    order = await db.orders.find_one({"order_id": order_id, "canteen_id": payload["canteen_id"]})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if req.action == "verify":
+        await db.orders.update_one({"order_id": order_id}, {"$set": {"payment_status": "verified"}})
+        return {"order_id": order_id, "payment_status": "verified"}
+    elif req.action == "reject":
+        await db.orders.update_one({"order_id": order_id}, {"$set": {"payment_status": "rejected"}})
+        return {"order_id": order_id, "payment_status": "rejected"}
+    else:
+        raise HTTPException(400, "Invalid action")
 
 # ── SSE Notification Stream ──
 

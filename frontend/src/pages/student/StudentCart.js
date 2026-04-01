@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Minus, Plus, Trash2, CreditCard, Loader2 } from "lucide-react";
+import { ArrowLeft, Minus, Plus, Trash2, CreditCard, Loader2, QrCode, X } from "lucide-react";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import API from "@/lib/api";
@@ -11,10 +11,25 @@ export default function StudentCart() {
   const { items, canteenId, canteenName, total, addItem, removeItem, clearCart } = useCart();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
+  const [showQR, setShowQR] = useState(false);
+  const [qrCode, setQrCode] = useState("");
+  const [upiId, setUpiId] = useState("");
+
+  useEffect(() => {
+    if (canteenId) {
+      API.get(`/canteens`).then(res => {
+        const canteen = res.data.find(c => c.canteen_id === canteenId);
+        if (canteen) {
+          setQrCode(canteen.qr_code || "");
+          setUpiId(canteen.upi_id || "");
+        }
+      }).catch(() => {});
+    }
+  }, [canteenId]);
 
   if (!user) { navigate("/student/login"); return null; }
 
-  const handlePlaceOrder = async () => {
+  const handlePlaceOrder = async (paymentMethod = "none") => {
     if (items.length === 0) return;
     setPlacing(true);
     setError("");
@@ -22,8 +37,10 @@ export default function StudentCart() {
       const { data } = await API.post("/orders", {
         canteen_id: canteenId,
         items: items.map(i => ({ item_id: i.item_id, name: i.name, qty: i.qty, price: i.price })),
+        payment_method: paymentMethod,
       });
       clearCart();
+      setShowQR(false);
       navigate(`/student/order/${data.order_id}`);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to place order");
@@ -102,20 +119,50 @@ export default function StudentCart() {
       <div className="px-5 mt-3">
         <div className="bg-yellow-200 border-2 border-black rounded-lg p-3 flex items-start gap-2">
           <CreditCard className="w-5 h-5 mt-0.5 flex-shrink-0" strokeWidth={2.5} />
-          <p className="text-sm font-semibold text-gray-800">Pay at the counter when collecting your order</p>
+          <p className="text-sm font-semibold text-gray-800">Pay at counter when collecting — or pay via UPI below</p>
         </div>
       </div>
 
       {error && <div className="px-5 mt-3"><p className="text-sm font-bold text-red-500 bg-red-50 border-2 border-red-300 rounded-lg p-2" data-testid="order-error">{error}</p></div>}
 
       <div className="fixed bottom-0 left-0 right-0 z-50">
-        <div className="max-w-md mx-auto px-5 pb-5">
-          <button onClick={handlePlaceOrder} disabled={placing} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-4 text-center font-black text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50" data-testid="place-order-btn" style={{ fontFamily: "'Outfit', sans-serif" }}>
+        <div className="max-w-md mx-auto px-5 pb-5 space-y-2">
+          {qrCode && (
+            <button onClick={() => setShowQR(true)} className="w-full bg-white border-[3px] border-black rounded-xl p-3 text-center font-bold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2">
+              <QrCode className="w-5 h-5" strokeWidth={2.5} />
+              Pay via QR/UPI
+            </button>
+          )}
+          <button onClick={() => handlePlaceOrder("none")} disabled={placing} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-4 text-center font-black text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50" data-testid="place-order-btn" style={{ fontFamily: "'Outfit', sans-serif" }}>
             {placing ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             {placing ? "Placing..." : `Place Order — ₹${total}`}
           </button>
         </div>
       </div>
+
+      {/* QR Code Modal */}
+      {showQR && (
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-5" onClick={() => setShowQR(false)}>
+          <div className="card-brutal max-w-sm w-full p-6 space-y-4 relative" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowQR(false)} className="absolute top-4 right-4 w-8 h-8 bg-gray-200 border-2 border-black rounded-lg flex items-center justify-center btn-brutal">
+              <X className="w-5 h-5" strokeWidth={2.5} />
+            </button>
+            <h3 className="text-xl font-black" style={{ fontFamily: "'Outfit', sans-serif" }}>Pay via UPI</h3>
+            <div className="bg-white border-2 border-black rounded-lg p-4 flex flex-col items-center">
+              <img src={qrCode} alt="QR Code" className="w-64 h-64 border-2 border-black rounded-lg" />
+              <p className="text-sm font-bold text-gray-600 mt-3">Scan with any UPI app</p>
+              {upiId && <p className="text-xs font-mono text-gray-500 mt-1">{upiId}</p>}
+            </div>
+            <p className="text-xs font-semibold text-gray-600 bg-yellow-100 border-2 border-yellow-400 rounded-lg p-2">
+              After payment, click "Confirm Payment" below. Staff will verify before processing.
+            </p>
+            <button onClick={() => handlePlaceOrder("qr")} disabled={placing} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-3 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50">
+              {placing ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" strokeWidth={2.5} />}
+              {placing ? "Confirming..." : "Confirm Payment & Place Order"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
