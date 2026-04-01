@@ -393,6 +393,36 @@ async def update_order_status(order_id: str, req: StatusUpdateReq, request: Requ
         })
     return updated
 
+@api_router.get("/staff/menu-items")
+async def get_staff_menu_items(request: Request):
+    payload = await get_current_user(request)
+    if payload["role"] != "canteen_staff":
+        raise HTTPException(403, "Forbidden")
+    return await db.menu_items.find({"canteen_id": payload["canteen_id"]}, {"_id": 0}).to_list(100)
+
+@api_router.patch("/staff/menu-items/{item_id}/availability")
+async def toggle_item_availability(item_id: str, request: Request):
+    payload = await get_current_user(request)
+    if payload["role"] != "canteen_staff":
+        raise HTTPException(403, "Forbidden")
+    item = await db.menu_items.find_one({"item_id": item_id, "canteen_id": payload["canteen_id"]})
+    if not item:
+        raise HTTPException(404, "Item not found or not yours")
+    new_status = not item.get("available", True)
+    await db.menu_items.update_one({"item_id": item_id}, {"$set": {"available": new_status}})
+    return {"item_id": item_id, "available": new_status}
+
+@api_router.patch("/staff/menu-items/{item_id}/category")
+async def update_item_category(item_id: str, category: str, request: Request):
+    payload = await get_current_user(request)
+    if payload["role"] != "canteen_staff":
+        raise HTTPException(403, "Forbidden")
+    item = await db.menu_items.find_one({"item_id": item_id, "canteen_id": payload["canteen_id"]})
+    if not item:
+        raise HTTPException(404, "Item not found or not yours")
+    await db.menu_items.update_one({"item_id": item_id}, {"$set": {"category": category}})
+    return {"item_id": item_id, "category": category}
+
 # ── SSE Notification Stream ──
 
 @api_router.get("/notifications/stream")

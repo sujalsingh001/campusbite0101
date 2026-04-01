@@ -15,6 +15,7 @@ export default function StudentMenu() {
   const [activeCanteen, setActiveCanteen] = useState("");
   const [menuItems, setMenuItems] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -42,7 +43,13 @@ export default function StudentMenu() {
 
   const handleRemove = (itemId) => removeItem(itemId);
 
-  const filteredItems = menuItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const categories = ["all", ...new Set(menuItems.map(i => i.category || "general"))];
+  
+  const filteredItems = menuItems.filter(i => {
+    const matchesSearch = i.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === "all" || i.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   const handleLogout = () => { logout(); navigate("/"); };
 
@@ -87,6 +94,21 @@ export default function StudentMenu() {
           </div>
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
+
+        {/* Category Filter */}
+        {categories.length > 1 && (
+          <ScrollArea className="w-full mt-2">
+            <div className="flex gap-2 px-5">
+              {categories.map(cat => (
+                <button key={cat} onClick={() => setSelectedCategory(cat)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full border-2 border-black font-medium text-xs transition-all ${selectedCategory === cat ? "bg-lime-400 text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.2)]"}`}>
+                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                </button>
+              ))}
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        )}
       </div>
 
       <div className="px-5 pt-4 pb-2">
