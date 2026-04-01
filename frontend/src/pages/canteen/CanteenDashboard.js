@@ -56,15 +56,6 @@ export default function CanteenDashboard() {
     }
   };
 
-  const verifyPayment = async (orderId, action) => {
-    try {
-      await API.patch(`/staff/orders/${orderId}/payment`, { action });
-      fetchOrders();
-    } catch (err) {
-      // Payment verification failed
-    }
-  };
-
   const handleLogout = () => { logout(); navigate("/"); };
 
   const todayOrders = orders.length;
@@ -157,26 +148,14 @@ export default function CanteenDashboard() {
                           <div className="border-t border-gray-300 mt-1.5 pt-1.5 flex justify-between"><span className="text-sm font-bold">Total</span><span className="text-sm font-black font-mono">₹{order.total}</span></div>
                         </div>
 
-                        {/* Payment Status */}
-                        {order.payment_method === "qr" && (
-                          <div className={`border-2 rounded-lg p-2 text-xs font-bold ${order.payment_status === "verified" ? "bg-lime-100 border-lime-400 text-lime-800" : order.payment_status === "rejected" ? "bg-red-100 border-red-400 text-red-800" : "bg-yellow-100 border-yellow-400 text-yellow-800"}`}>
-                            💳 UPI Payment: {order.payment_status === "verified" ? "✓ Verified" : order.payment_status === "rejected" ? "✕ Rejected" : "⏳ Pending Verification"}
+                        {/* PAID Badge */}
+                        {order.priority && order.payment_status === "paid" && (
+                          <div className="bg-lime-100 border-2 border-lime-400 rounded-lg p-2 text-xs font-black text-lime-800 text-center">
+                            ✓ PAID (Priority Order)
                           </div>
                         )}
 
-                        {/* Payment Verification Buttons */}
-                        {order.payment_status === "pending" && col.key === "placed" && (
-                          <div className="flex gap-2">
-                            <button onClick={() => verifyPayment(order.order_id, "verify")} className="flex-1 bg-lime-400 border-2 border-black rounded-lg py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
-                              ✓ Verify Payment
-                            </button>
-                            <button onClick={() => verifyPayment(order.order_id, "reject")} className="flex-1 bg-red-300 border-2 border-black rounded-lg py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
-                              ✕ Reject
-                            </button>
-                          </div>
-                        )}
-
-                        {col.key === "placed" && order.payment_status !== "pending" && (
+                        {col.key === "placed" && (
                           <button onClick={() => moveOrder(order.order_id, "preparing")} className="w-full btn-primary flex items-center justify-center gap-2 text-sm" data-testid={`start-btn-${order.order_id}`}>
                             <ChefHat className="w-4 h-4" strokeWidth={2.5} />Start Preparing<ArrowRight className="w-4 h-4" strokeWidth={2.5} />
                           </button>

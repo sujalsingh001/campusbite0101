@@ -14,6 +14,8 @@ export default function StudentCart() {
   const [showQR, setShowQR] = useState(false);
   const [qrCode, setQrCode] = useState("");
   const [upiId, setUpiId] = useState("");
+  const [qrEnabled, setQrEnabled] = useState(false);
+  const [utr, setUtr] = useState("");
 
   useEffect(() => {
     if (canteenId) {
@@ -22,6 +24,7 @@ export default function StudentCart() {
         if (canteen) {
           setQrCode(canteen.qr_code || "");
           setUpiId(canteen.upi_id || "");
+          setQrEnabled(canteen.qr_enabled || false);
         }
       }).catch(() => {});
     }
@@ -31,6 +34,13 @@ export default function StudentCart() {
 
   const handlePlaceOrder = async (paymentMethod = "none") => {
     if (items.length === 0) return;
+    
+    // Validate UTR if QR payment selected
+    if (paymentMethod === "qr" && !utr.trim()) {
+      setError("Please enter UTR (transaction ID)");
+      return;
+    }
+    
     setPlacing(true);
     setError("");
     try {
@@ -38,9 +48,11 @@ export default function StudentCart() {
         canteen_id: canteenId,
         items: items.map(i => ({ item_id: i.item_id, name: i.name, qty: i.qty, price: i.price })),
         payment_method: paymentMethod,
+        utr: paymentMethod === "qr" ? utr.trim() : undefined,
       });
       clearCart();
       setShowQR(false);
+      setUtr("");
       navigate(`/student/order/${data.order_id}`);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to place order");
@@ -127,7 +139,7 @@ export default function StudentCart() {
 
       <div className="fixed bottom-0 left-0 right-0 z-50">
         <div className="max-w-md mx-auto px-5 pb-5 space-y-2">
-          {qrCode && (
+          {qrCode && qrEnabled && (
             <button onClick={() => setShowQR(true)} className="w-full bg-white border-[3px] border-black rounded-xl p-3 text-center font-bold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2">
               <QrCode className="w-5 h-5" strokeWidth={2.5} />
               Pay via QR/UPI
@@ -153,12 +165,23 @@ export default function StudentCart() {
               <p className="text-sm font-bold text-gray-600 mt-3">Scan with any UPI app</p>
               {upiId && <p className="text-xs font-mono text-gray-500 mt-1">{upiId}</p>}
             </div>
+            <div>
+              <label className="text-sm font-bold text-gray-700 mb-2 block">Enter UTR (Transaction ID)</label>
+              <input
+                type="text"
+                value={utr}
+                onChange={(e) => setUtr(e.target.value)}
+                placeholder="e.g., 409123456789"
+                className="input-brutal w-full"
+              />
+              <p className="text-xs text-gray-500 mt-1">Find UTR in your UPI app after payment</p>
+            </div>
             <p className="text-xs font-semibold text-gray-600 bg-yellow-100 border-2 border-yellow-400 rounded-lg p-2">
-              After payment, click "Confirm Payment" below. Staff will verify before processing.
+              💡 After payment, enter the UTR and click "I have paid" below
             </p>
-            <button onClick={() => handlePlaceOrder("qr")} disabled={placing} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-3 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50">
+            <button onClick={() => handlePlaceOrder("qr")} disabled={placing || !utr.trim()} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-3 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50">
               {placing ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" strokeWidth={2.5} />}
-              {placing ? "Confirming..." : "Confirm Payment & Place Order"}
+              {placing ? "Confirming..." : "I have paid"}
             </button>
           </div>
         </div>

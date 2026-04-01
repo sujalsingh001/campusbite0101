@@ -286,21 +286,36 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(canteen.name);
   const [description, setDescription] = useState(canteen.description);
+  const [qrCode, setQrCode] = useState(canteen.qr_code || "");
+  const [qrEnabled, setQrEnabled] = useState(canteen.qr_enabled || false);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await API.put(`/admin/canteens/${canteen.canteen_id}`, { name, description });
+      if (qrCode !== canteen.qr_code) {
+        await API.patch(`/admin/canteens/${canteen.canteen_id}/qr`, { qr_code: qrCode });
+      }
       setEditing(false);
       onUpdate();
     } catch (e) { /* Error handled silently */ }
     finally { setSaving(false); }
   };
 
+  const toggleQR = async () => {
+    const newStatus = !qrEnabled;
+    setQrEnabled(newStatus);
+    try {
+      await API.patch(`/admin/canteens/${canteen.canteen_id}/toggle-qr?enabled=${newStatus}`);
+      onUpdate();
+    } catch (e) { /* Error handled silently */ }
+  };
+
   const handleCancel = () => {
     setName(canteen.name);
     setDescription(canteen.description);
+    setQrCode(canteen.qr_code || "");
     setEditing(false);
   };
 
@@ -326,11 +341,19 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
               placeholder="Description"
               data-testid={`edit-canteen-desc-${canteen.canteen_id}`}
             />
+            <input
+              value={qrCode}
+              onChange={e => setQrCode(e.target.value)}
+              className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400 text-xs py-1.5"
+              placeholder="QR Code URL (e.g., https://...)"
+              data-testid={`edit-qr-code-${canteen.canteen_id}`}
+            />
           </div>
         ) : (
           <div className="flex-1">
             <h4 className="font-black text-white text-base" style={{ fontFamily: "'Outfit', sans-serif" }}>{canteen.name}</h4>
             <p className="text-xs text-gray-500 font-semibold">{canteen.description}</p>
+            {canteen.qr_code && <p className="text-xs text-lime-400 font-mono mt-1">QR: {canteen.qr_code.substring(0, 40)}...</p>}
           </div>
         )}
       </div>
@@ -345,9 +368,14 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
             </button>
           </>
         ) : (
-          <button onClick={() => setEditing(true)} className="bg-gray-700 text-gray-300 text-xs font-bold px-3 py-1.5 border border-gray-500 rounded-lg hover:bg-gray-600 flex items-center gap-1.5 transition-colors" data-testid={`edit-canteen-${canteen.canteen_id}`}>
-            <Pencil className="w-3 h-3" strokeWidth={2.5} />Edit
-          </button>
+          <>
+            <button onClick={() => setEditing(true)} className="bg-gray-700 text-gray-300 text-xs font-bold px-3 py-1.5 border border-gray-500 rounded-lg hover:bg-gray-600 flex items-center gap-1.5 transition-colors" data-testid={`edit-canteen-${canteen.canteen_id}`}>
+              <Pencil className="w-3 h-3" strokeWidth={2.5} />Edit
+            </button>
+            <button onClick={toggleQR} className={`text-xs font-bold px-3 py-1.5 border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal ${qrEnabled ? "bg-lime-400 text-black" : "bg-gray-600 text-gray-300"}`}>
+              {qrEnabled ? "QR: ON" : "QR: OFF"}
+            </button>
+          </>
         )}
         <Badge className="bg-lime-400/20 text-lime-400 border border-lime-400/50 font-bold text-[10px] ml-auto">{canteen.status || "active"}</Badge>
       </div>

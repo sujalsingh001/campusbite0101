@@ -103,12 +103,13 @@ class CreateOrderReq(BaseModel):
     canteen_id: str
     items: List[OrderItem]
     payment_method: Optional[str] = "none"  # "none" or "qr"
+    utr: Optional[str] = None  # UTR for QR payments
 
 class StatusUpdateReq(BaseModel):
     status: str
 
-class PaymentVerificationReq(BaseModel):
-    action: str  # "verify" or "reject"
+class UploadQRReq(BaseModel):
+    qr_code: str  # QR image URL or base64
 
 class CreateCanteenReq(BaseModel):
     canteen_id: str
@@ -323,14 +324,27 @@ async def create_order(req: CreateOrderReq, request: Request):
     canteen = await db.canteens.find_one({"canteen_id": req.canteen_id}, {"_id": 0})
     if not canteen:
         raise HTTPException(404, "Canteen not found")
+    
+    # Check if QR payment is enabled
+    qr_enabled = canteen.get("qr_enabled", False)
+    if req.payment_method == "qr" and not qr_enabled:
+        raise HTTPException(400, "QR payment not enabled for this canteen")
+    
+    # Validate UTR if provided
+    if req.utr:
+        utr_exists = await db.orders.find_one({"utr": req.utr})
+        if utr_exists:
+            raise HTTPException(400, "This UTR has already been used")
+    
     token_number = await get_next_token()
     pending = await db.orders.count_documents({"canteen_id": req.canteen_id, "status": {"$in": ["placed", "preparing"]}})
     est_minutes = max(5, min(30, (pending + 1) * 5))
     total = sum(i.price * i.qty for i in req.items)
     student_identifier = payload.get("auid") or payload.get("phone", "unknown")
     
-    # Determine payment status based on method
-    payment_status = "pending" if req.payment_method == "qr" else "none"
+    # Determine payment status and priority
+    payment_status = "paid" if (req.payment_method == "qr" and req.utr) else "unpaid"
+    priority = True if payment_status == "paid" else False
     
     order_doc = {
         "order_id": str(uuid.uuid4()), "token_number": token_number,
@@ -340,6 +354,8 @@ async def create_order(req: CreateOrderReq, request: Request):
         "total": total, "status": "placed",
         "payment_method": req.payment_method or "none",
         "payment_status": payment_status,
+        "priority": priority,
+        "utr": req.utr or None,
         "estimated_time": f"{est_minutes} min",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -372,7 +388,9 @@ async def get_canteen_orders(request: Request):
     payload = await get_current_user(request)
     if payload["role"] != "canteen_staff":
         raise HTTPException(403, "Forbidden")
-    return await db.orders.find({"canteen_id": payload["canteen_id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Sort by priority (paid first), then by created_at
+    orders = await db.orders.find({"canteen_id": payload["canteen_id"]}, {"_id": 0}).to_list(200)
+    return sorted(orders, key=lambda x: (not x.get("priority", False), x.get("created_at", "")))
 
 @api_router.patch("/staff/orders/{order_id}/status")
 async def update_order_status(order_id: str, req: StatusUpdateReq, request: Request):
@@ -432,23 +450,6 @@ async def update_item_category(item_id: str, category: str, request: Request):
         raise HTTPException(404, "Item not found or not yours")
     await db.menu_items.update_one({"item_id": item_id}, {"$set": {"category": category}})
     return {"item_id": item_id, "category": category}
-
-@api_router.patch("/staff/orders/{order_id}/payment")
-async def verify_payment(order_id: str, req: PaymentVerificationReq, request: Request):
-    payload = await get_current_user(request)
-    if payload["role"] != "canteen_staff":
-        raise HTTPException(403, "Forbidden")
-    order = await db.orders.find_one({"order_id": order_id, "canteen_id": payload["canteen_id"]})
-    if not order:
-        raise HTTPException(404, "Order not found")
-    if req.action == "verify":
-        await db.orders.update_one({"order_id": order_id}, {"$set": {"payment_status": "verified"}})
-        return {"order_id": order_id, "payment_status": "verified"}
-    elif req.action == "reject":
-        await db.orders.update_one({"order_id": order_id}, {"$set": {"payment_status": "rejected"}})
-        return {"order_id": order_id, "payment_status": "rejected"}
-    else:
-        raise HTTPException(400, "Invalid action")
 
 # ── SSE Notification Stream ──
 
@@ -539,6 +540,32 @@ async def admin_update_canteen(canteen_id: str, req: UpdateCanteenReq, request: 
     if result.matched_count == 0:
         raise HTTPException(404, "Canteen not found")
     return await db.canteens.find_one({"canteen_id": canteen_id}, {"_id": 0})
+
+@api_router.patch("/admin/canteens/{canteen_id}/qr")
+async def admin_upload_qr(canteen_id: str, req: UploadQRReq, request: Request):
+    payload = await get_current_user(request)
+    if payload["role"] != "admin":
+        raise HTTPException(403, "Forbidden - Only super admin can manage QR codes")
+    result = await db.canteens.update_one(
+        {"canteen_id": canteen_id}, 
+        {"$set": {"qr_code": req.qr_code}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Canteen not found")
+    return {"canteen_id": canteen_id, "qr_code": req.qr_code}
+
+@api_router.patch("/admin/canteens/{canteen_id}/toggle-qr")
+async def admin_toggle_qr(canteen_id: str, enabled: bool, request: Request):
+    payload = await get_current_user(request)
+    if payload["role"] != "admin":
+        raise HTTPException(403, "Forbidden")
+    result = await db.canteens.update_one(
+        {"canteen_id": canteen_id}, 
+        {"$set": {"qr_enabled": enabled}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Canteen not found")
+    return {"canteen_id": canteen_id, "qr_enabled": enabled}
 
 @api_router.get("/admin/menu-items")
 async def admin_get_menu_items(request: Request):
