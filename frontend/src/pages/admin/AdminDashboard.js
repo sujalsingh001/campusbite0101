@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import {
   LogOut, ShieldCheck, Store, UtensilsCrossed, Users, BarChart3,
   TrendingUp, Plus, Trash2, IndianRupee, ShoppingBag, Clock, ChefHat, Loader2, Pencil
@@ -193,7 +194,18 @@ function AddCanteenDialog({ onAdd }) {
   const [loading, setLoading] = useState(false);
   const handleSubmit = async () => {
     setLoading(true);
-    try { await API.post("/admin/canteens", form); setOpen(false); setForm({ canteen_id: "", name: "", description: "" }); onAdd(); } catch (e) { /* Error handled silently */ } finally { setLoading(false); }
+    try { 
+      await API.post("/admin/canteens", form); 
+      setOpen(false); 
+      setForm({ canteen_id: "", name: "", description: "" }); 
+      onAdd(); 
+      toast.success("Canteen added successfully");
+    } catch (e) { 
+      console.error("Failed to add canteen:", e);
+      toast.error("Failed to add canteen. Please try again.");
+    } finally { 
+      setLoading(false); 
+    }
   };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -221,7 +233,18 @@ function AddMenuItemDialog({ canteens, onAdd }) {
   const [loading, setLoading] = useState(false);
   const handleSubmit = async () => {
     setLoading(true);
-    try { await API.post("/admin/menu-items", { ...form, price: parseInt(form.price) || 0 }); setOpen(false); setForm({ item_id: "", canteen_id: "", name: "", price: "", image: "", category: "", veg: true }); onAdd(); } catch (e) { /* Error handled silently */ } finally { setLoading(false); }
+    try { 
+      await API.post("/admin/menu-items", { ...form, price: parseInt(form.price) || 0 }); 
+      setOpen(false); 
+      setForm({ item_id: "", canteen_id: "", name: "", price: "", image: "", category: "", veg: true }); 
+      onAdd(); 
+      toast.success("Menu item added successfully");
+    } catch (e) { 
+      console.error("Failed to add menu item:", e);
+      toast.error("Failed to add menu item. Please try again.");
+    } finally { 
+      setLoading(false); 
+    }
   };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -256,7 +279,18 @@ function AddStaffDialog({ canteens, onAdd }) {
   const [loading, setLoading] = useState(false);
   const handleSubmit = async () => {
     setLoading(true);
-    try { await API.post("/admin/staff", form); setOpen(false); setForm({ email: "", password: "", name: "", canteen_id: "" }); onAdd(); } catch (e) { /* Error handled silently */ } finally { setLoading(false); }
+    try { 
+      await API.post("/admin/staff", form); 
+      setOpen(false); 
+      setForm({ email: "", password: "", name: "", canteen_id: "" }); 
+      onAdd(); 
+      toast.success("Staff member added successfully");
+    } catch (e) { 
+      console.error("Failed to add staff:", e);
+      toast.error("Failed to add staff member. Please try again.");
+    } finally { 
+      setLoading(false); 
+    }
   };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -300,8 +334,13 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
       }
       setEditing(false);
       onUpdate();
-    } catch (e) { /* Error handled silently */ }
-    finally { setSaving(false); }
+      toast.success("Canteen updated successfully");
+    } catch (e) { 
+      console.error("Failed to update canteen:", e);
+      toast.error("Failed to update canteen. Please try again.");
+    } finally { 
+      setSaving(false); 
+    }
   };
 
   const toggleQR = async () => {
@@ -310,7 +349,12 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
     try {
       await API.patch(`/admin/canteens/${canteen.canteen_id}/toggle-qr?enabled=${newStatus}`);
       onUpdate();
-    } catch (e) { /* Error handled silently */ }
+      toast.success(`QR payment ${newStatus ? 'enabled' : 'disabled'}`);
+    } catch (e) { 
+      console.error("Failed to toggle QR:", e);
+      toast.error("Failed to toggle QR payment.");
+      setQrEnabled(!newStatus); // Revert on error
+    }
   };
 
   const handleCancel = () => {
