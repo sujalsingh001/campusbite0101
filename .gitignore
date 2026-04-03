@@ -22,6 +22,9 @@ dist/
 .env.test.local
 .env.production.local
 
+# Sensitive files
+memory/test_credentials.md
+
 # IDE
 .vscode/
 .idea/

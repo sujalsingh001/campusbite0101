@@ -13,15 +13,21 @@ from bson import ObjectId
 import os
 import logging
 import uuid
+import json
 import bcrypt
 import jwt as pyjwt
 import asyncio
+from pywebpush import webpush, WebPushException
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
 JWT_ALGORITHM = "HS256"
+
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
+VAPID_CLAIMS_EMAIL = os.environ.get('VAPID_CLAIMS_EMAIL', 'mailto:admin@campusbite.com')
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -53,6 +59,51 @@ def unsubscribe(student_id: str, queue: asyncio.Queue):
         notification_subscribers[student_id] = [q for q in notification_subscribers[student_id] if q is not queue]
         if not notification_subscribers[student_id]:
             del notification_subscribers[student_id]
+
+# ── Web Push Notifications ──
+
+async def send_push_notification(student_id: str, payload: dict):
+    """Send push notifications to all registered subscriptions for a student."""
+    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        logger.warning("VAPID keys not configured, skipping push notification")
+        return
+
+    subscriptions = await db.push_subscriptions.find(
+        {"student_id": student_id}
+    ).to_list(50)
+
+    if not subscriptions:
+        return
+
+    payload_str = json.dumps(payload)
+    stale_ids = []
+
+    for sub_doc in subscriptions:
+        subscription_info = sub_doc.get("subscription")
+        if not subscription_info:
+            continue
+        try:
+            webpush(
+                subscription_info=subscription_info,
+                data=payload_str,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": VAPID_CLAIMS_EMAIL}
+            )
+        except WebPushException as e:
+            resp = getattr(e, 'response', None)
+            status = resp.status_code if resp else 0
+            if status in (404, 410):
+                stale_ids.append(sub_doc["_id"])
+            else:
+                logger.error(f"Push notification failed: {e}")
+        except Exception as e:
+            logger.error(f"Push notification error: {e}")
+
+    if stale_ids:
+        await db.push_subscriptions.delete_many({"_id": {"$in": stale_ids}})
+
+class PushSubscriptionReq(BaseModel):
+    subscription: Dict[str, Any]
 
 # ── Auth Utilities ──
 
@@ -237,6 +288,7 @@ async def seed_data():
     await db.orders.create_index("canteen_id")
     await db.menu_items.create_index("canteen_id")
     await db.canteens.create_index("canteen_id")
+    await db.push_subscriptions.create_index("student_id")
 
 # ── Auth Routes ──
 
@@ -420,6 +472,17 @@ async def update_order_status(order_id: str, req: StatusUpdateReq, request: Requ
             "canteen_name": order.get("canteen_name", ""),
             "message": msg
         })
+        # Send Web Push notification (works even when app is closed)
+        push_title = "Order Being Prepared" if req.status == "preparing" else "Order Ready!"
+        push_body = msg
+        await send_push_notification(student_id, {
+            "title": push_title,
+            "body": push_body,
+            "tag": f"order-{order_id}",
+            "status": req.status,
+            "order_id": order_id,
+            "url": "/"
+        })
     return updated
 
 @api_router.get("/staff/menu-items")
@@ -488,6 +551,51 @@ async def notification_stream(request: Request, token: str = ""):
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
     })
+
+# ── Push Notification Routes ──
+
+@api_router.get("/push/vapid-key")
+async def get_vapid_key():
+    return {"public_key": VAPID_PUBLIC_KEY}
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(req: PushSubscriptionReq, request: Request):
+    payload = await get_current_user(request)
+    student_id = payload.get("auid") or payload.get("phone")
+    if not student_id:
+        raise HTTPException(400, "No student identifier")
+
+    endpoint = req.subscription.get("endpoint", "")
+    if not endpoint:
+        raise HTTPException(400, "Invalid subscription: missing endpoint")
+
+    existing = await db.push_subscriptions.find_one({
+        "student_id": student_id,
+        "subscription.endpoint": endpoint
+    })
+    if existing:
+        return {"status": "already_subscribed"}
+
+    await db.push_subscriptions.insert_one({
+        "student_id": student_id,
+        "subscription": req.subscription,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    return {"status": "subscribed"}
+
+@api_router.post("/push/unsubscribe")
+async def push_unsubscribe(req: PushSubscriptionReq, request: Request):
+    payload = await get_current_user(request)
+    student_id = payload.get("auid") or payload.get("phone")
+    if not student_id:
+        raise HTTPException(400, "No student identifier")
+
+    endpoint = req.subscription.get("endpoint", "")
+    result = await db.push_subscriptions.delete_many({
+        "student_id": student_id,
+        "subscription.endpoint": endpoint
+    })
+    return {"status": "unsubscribed", "count": result.deleted_count}
 
 # ── Admin Routes ──
 
