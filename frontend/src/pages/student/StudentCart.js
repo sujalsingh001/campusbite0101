@@ -16,19 +16,39 @@ export default function StudentCart() {
   const [upiId, setUpiId] = useState("");
   const [qrEnabled, setQrEnabled] = useState(false);
   const [utr, setUtr] = useState("");
+  const [refId, setRefId] = useState("");
+
+  useEffect(() => {
+    // Generate unique reference ID for this cart session
+    setRefId(`REF${Date.now()}`);
+  }, []);
 
   useEffect(() => {
     if (canteenId) {
       API.get(`/canteens`).then(res => {
         const canteen = res.data.find(c => c.canteen_id === canteenId);
         if (canteen) {
-          setQrCode(canteen.qr_code || "");
-          setUpiId(canteen.upi_id || "");
+          const upiIdValue = canteen.upi_id || "";
+          setUpiId(upiIdValue);
           setQrEnabled(canteen.qr_enabled || false);
+          
+          // Generate QR dynamically from UPI ID if not already set
+          let qrUrl = canteen.qr_code || "";
+          if (!qrUrl && upiIdValue && total > 0) {
+            // Create UPI payment link
+            const upiLink = `upi://pay?pa=${upiIdValue}&pn=${encodeURIComponent(canteen.name)}&tn=Order-${refId}&am=${total}&cu=INR`;
+            // Generate QR from UPI link
+            qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiLink)}`;
+          } else if (!qrUrl && upiIdValue) {
+            // Fallback QR without amount
+            const upiLink = `upi://pay?pa=${upiIdValue}&pn=${encodeURIComponent(canteen.name)}`;
+            qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiLink)}`;
+          }
+          setQrCode(qrUrl);
         }
       }).catch(() => {});
     }
-  }, [canteenId]);
+  }, [canteenId, total, refId]);
 
   if (!user) { navigate("/student/login"); return null; }
 
@@ -169,13 +189,21 @@ export default function StudentCart() {
             </button>
             <h3 className="text-xl font-black" style={{ fontFamily: "'Outfit', sans-serif" }}>Pay via UPI</h3>
             <div className="bg-white border-2 border-black rounded-lg p-4 flex flex-col items-center">
-              <img src={qrCode} alt="QR Code" className="w-64 h-64 border-2 border-black rounded-lg" />
-              <p className="text-sm font-bold text-gray-600 mt-3">Scan with any UPI app</p>
-              {upiId && <p className="text-xs font-mono text-gray-500 mt-1">{upiId}</p>}
-              {upiId && (
-                <a href={`upi://pay?pa=${upiId}&pn=${canteenName || 'Canteen'}&am=${total}&cu=INR`} className="mt-3 bg-white border-2 border-black rounded-lg px-4 py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
-                  Open in UPI App
-                </a>
+              {qrCode ? (
+                <>
+                  <img src={qrCode} alt="QR Code" className="w-64 h-64 border-2 border-black rounded-lg" onError={(e) => { e.target.src = 'https://via.placeholder.com/300x300/f0f0f0/666?text=QR+Code+Error'; }} />
+                  <p className="text-sm font-bold text-gray-600 mt-3">Scan with any UPI app</p>
+                  {upiId && <p className="text-xs font-mono text-gray-500 mt-1">{upiId}</p>}
+                  {upiId && (
+                    <a href={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(canteenName || 'Canteen')}&tn=Order-${refId}&am=${total}&cu=INR`} className="mt-3 bg-white border-2 border-black rounded-lg px-4 py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
+                      Open in UPI App
+                    </a>
+                  )}
+                </>
+              ) : (
+                <div className="w-64 h-64 border-2 border-black rounded-lg bg-gray-100 flex items-center justify-center">
+                  <p className="text-sm text-gray-500 font-bold text-center px-4">QR code unavailable. Please use "Open in UPI App" below.</p>
+                </div>
               )}
             </div>
             <div>

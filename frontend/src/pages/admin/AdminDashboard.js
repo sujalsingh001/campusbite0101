@@ -286,6 +286,7 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(canteen.name);
   const [description, setDescription] = useState(canteen.description);
+  const [upiId, setUpiId] = useState(canteen.upi_id || "");
   const [qrCode, setQrCode] = useState(canteen.qr_code || "");
   const [qrEnabled, setQrEnabled] = useState(canteen.qr_enabled || false);
   const [saving, setSaving] = useState(false);
@@ -293,7 +294,7 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await API.put(`/admin/canteens/${canteen.canteen_id}`, { name, description });
+      await API.put(`/admin/canteens/${canteen.canteen_id}`, { name, description, upi_id: upiId });
       if (qrCode !== canteen.qr_code) {
         await API.patch(`/admin/canteens/${canteen.canteen_id}/qr`, { qr_code: qrCode });
       }
@@ -315,6 +316,7 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
   const handleCancel = () => {
     setName(canteen.name);
     setDescription(canteen.description);
+    setUpiId(canteen.upi_id || "");
     setQrCode(canteen.qr_code || "");
     setEditing(false);
   };
@@ -342,10 +344,17 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
               data-testid={`edit-canteen-desc-${canteen.canteen_id}`}
             />
             <input
+              value={upiId}
+              onChange={e => setUpiId(e.target.value)}
+              className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400 text-xs py-1.5 font-mono"
+              placeholder="UPI ID (e.g., canteen@paytm)"
+              data-testid={`edit-upi-id-${canteen.canteen_id}`}
+            />
+            <input
               value={qrCode}
               onChange={e => setQrCode(e.target.value)}
               className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400 text-xs py-1.5"
-              placeholder="QR Code URL (e.g., https://...)"
+              placeholder="QR Code URL (optional - auto-generated from UPI ID)"
               data-testid={`edit-qr-code-${canteen.canteen_id}`}
             />
           </div>
@@ -353,6 +362,7 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
           <div className="flex-1">
             <h4 className="font-black text-white text-base" style={{ fontFamily: "'Outfit', sans-serif" }}>{canteen.name}</h4>
             <p className="text-xs text-gray-500 font-semibold">{canteen.description}</p>
+            {canteen.upi_id && <p className="text-xs text-blue-400 font-mono mt-1">UPI: {canteen.upi_id}</p>}
             {canteen.qr_code && <p className="text-xs text-lime-400 font-mono mt-1">QR: {canteen.qr_code.substring(0, 40)}...</p>}
           </div>
         )}

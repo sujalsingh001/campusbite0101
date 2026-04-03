@@ -120,6 +120,7 @@ class UpdateCanteenReq(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
+    upi_id: Optional[str] = None
 
 class CreateMenuItemReq(BaseModel):
     item_id: str
