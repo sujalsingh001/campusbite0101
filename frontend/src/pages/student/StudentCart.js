@@ -36,9 +36,17 @@ export default function StudentCart() {
     if (items.length === 0) return;
     
     // Validate UTR if QR payment selected
-    if (paymentMethod === "qr" && !utr.trim()) {
-      setError("Please enter UTR (transaction ID)");
-      return;
+    if (paymentMethod === "qr") {
+      const trimmedUtr = utr.trim();
+      if (!trimmedUtr) {
+        setError("Please enter UTR (transaction ID)");
+        return;
+      }
+      // UTR format validation: 12 digits
+      if (!/^\d{12}$/.test(trimmedUtr)) {
+        setError("UTR must be exactly 12 digits");
+        return;
+      }
     }
     
     setPlacing(true);
@@ -164,17 +172,23 @@ export default function StudentCart() {
               <img src={qrCode} alt="QR Code" className="w-64 h-64 border-2 border-black rounded-lg" />
               <p className="text-sm font-bold text-gray-600 mt-3">Scan with any UPI app</p>
               {upiId && <p className="text-xs font-mono text-gray-500 mt-1">{upiId}</p>}
+              {upiId && (
+                <a href={`upi://pay?pa=${upiId}&pn=${canteenName || 'Canteen'}&am=${total}&cu=INR`} className="mt-3 bg-white border-2 border-black rounded-lg px-4 py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
+                  Open in UPI App
+                </a>
+              )}
             </div>
             <div>
-              <label className="text-sm font-bold text-gray-700 mb-2 block">Enter UTR (Transaction ID)</label>
+              <label className="text-sm font-bold text-gray-700 mb-2 block">Enter UTR (12 digits)</label>
               <input
                 type="text"
                 value={utr}
-                onChange={(e) => setUtr(e.target.value)}
-                placeholder="e.g., 409123456789"
-                className="input-brutal w-full"
+                onChange={(e) => setUtr(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                placeholder="409123456789"
+                maxLength={12}
+                className="input-brutal w-full font-mono"
               />
-              <p className="text-xs text-gray-500 mt-1">Find UTR in your UPI app after payment</p>
+              <p className="text-xs text-gray-500 mt-1">Find UTR/Transaction ID in your UPI app after payment</p>
             </div>
             <p className="text-xs font-semibold text-gray-600 bg-yellow-100 border-2 border-yellow-400 rounded-lg p-2">
               💡 After payment, enter the UTR and click "I have paid" below

@@ -609,6 +609,27 @@ async def admin_delete_menu_item(item_id: str, request: Request):
         raise HTTPException(404, "Item not found")
     return {"message": "Deleted"}
 
+@api_router.patch("/admin/orders/{order_id}/payment-override")
+async def admin_payment_override(order_id: str, mark_unpaid: bool, request: Request):
+    payload = await get_current_user(request)
+    if payload["role"] != "admin":
+        raise HTTPException(403, "Forbidden - Only super admin")
+    order = await db.orders.find_one({"order_id": order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if mark_unpaid:
+        await db.orders.update_one(
+            {"order_id": order_id}, 
+            {"$set": {"payment_status": "unpaid", "priority": False}}
+        )
+        return {"order_id": order_id, "payment_status": "unpaid"}
+    else:
+        await db.orders.update_one(
+            {"order_id": order_id}, 
+            {"$set": {"payment_status": "paid", "priority": True}}
+        )
+        return {"order_id": order_id, "payment_status": "paid"}
+
 @api_router.get("/admin/staff")
 async def admin_get_staff(request: Request):
     payload = await get_current_user(request)
