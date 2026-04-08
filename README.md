@@ -67,6 +67,8 @@ Set environment variables:
 ### Frontend (`frontend/.env`)
 ```
 REACT_APP_BACKEND_URL=https://your-backend-url.com
+REACT_APP_SUPABASE_URL=https://your-project.supabase.co
+REACT_APP_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 
 ### Backend (`backend/.env`)
@@ -76,7 +78,14 @@ DB_NAME=campusbite
 JWT_SECRET=your-secret-key
 CORS_ORIGINS=https://your-frontend-url.com
 ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=admin123
+ADMIN_PASSWORD=your-strong-admin-password
+
+# Supabase Auth (college-restricted students)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+ALLOWED_EMAIL_DOMAIN=acharya.ac.in
+ALLOW_LEGACY_STUDENT_LOGIN=false
 ```
 
 ## Project Structure
@@ -105,6 +114,10 @@ npm run build
 ```
 
 Output: `frontend/build/`
+
+## Supabase Auth Setup
+
+See `SUPABASE_SETUP.md` for complete setup (SQL, auth settings, backend env, and Vercel env).
 
 ## Contributing
 

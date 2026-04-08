@@ -30,7 +30,7 @@ DB_NAME=campusbite
 JWT_SECRET=dev-secret-key
 CORS_ORIGINS=http://localhost:3000
 ADMIN_EMAIL=admin@campusbite.com
-ADMIN_PASSWORD=admin123
+ADMIN_PASSWORD=your-strong-admin-password
 ```
 
 ### 3. Start MongoDB
@@ -60,15 +60,13 @@ npm start
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:8001/api/
 
-## Default Credentials
+## Credentials
 
-**Super Admin:**
-- Email: admin@campusbite.com
-- Password: admin123
+Configure admin and staff credentials through environment variables only.
 
-**Canteen Staff (Main Canteen):**
-- Email: maincanteen@ait.edu
-- Password: staff123
+Example:
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD` for admin seed
+- `STAFF_SEED_JSON` for optional staff seed (email/name/canteen_id/password per staff entry)
 
 **Student:**
 - AUID: Any valid format (e.g., AIT26TEST01)
@@ -135,6 +133,7 @@ python -m pytest               # Run tests
 3. **Configure Payments**: Add UPI IDs and enable QR payments
 4. **Test Ordering**: Place a test order as student
 5. **Deploy**: Follow DEPLOYMENT.md guide
+6. **Supabase Auth**: Follow SUPABASE_SETUP.md
 
 ## Development Tips
 
