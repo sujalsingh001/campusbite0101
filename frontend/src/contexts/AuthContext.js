@@ -22,9 +22,8 @@ export function AuthProvider({ children }) {
     }
   }, []); // Empty deps is correct - only runs once on mount
 
-  const studentLogin = useCallback(async (auid, phone) => {
-    const payload = auid ? { auid } : { phone };
-    const { data } = await API.post('/auth/student/login', payload);
+  const studentLogin = useCallback(async (email, password) => {
+    const { data } = await API.post('/auth/student/login', { email, password });
     localStorage.setItem('campusbite_token', data.token);
     setUser(data.user);
     return data;
