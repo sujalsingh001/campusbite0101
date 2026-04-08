@@ -295,33 +295,35 @@ async def seed_data():
 @api_router.get("/")
 async def root():
     return {"message": "CampusBite API running"}
-
 @api_router.post("/auth/student/login")
-async def student_login(req: StudentLoginReq):
-    if req.auid:
-        auid = req.auid.strip().upper()
-        if not auid:
-            raise HTTPException(400, "AUID is required")
-        student = await db.users.find_one({"auid": auid, "role": "student"})
-        if not student:
-            result = await db.users.insert_one({"auid": auid, "role": "student", "created_at": datetime.now(timezone.utc).isoformat()})
-            student = await db.users.find_one({"_id": result.inserted_id})
-        user_id = str(student["_id"])
-        token = create_token(user_id, "student", {"auid": auid})
-        return {"token": token, "user": {"id": user_id, "auid": auid, "role": "student"}}
-    elif req.phone:
-        phone = req.phone.strip()
-        if not phone or len(phone) < 10:
-            raise HTTPException(400, "Valid phone number is required")
-        student = await db.users.find_one({"phone": phone, "role": "student"})
-        if not student:
-            result = await db.users.insert_one({"phone": phone, "role": "student", "created_at": datetime.now(timezone.utc).isoformat()})
-            student = await db.users.find_one({"_id": result.inserted_id})
-        user_id = str(student["_id"])
-        token = create_token(user_id, "student", {"phone": phone})
-        return {"token": token, "user": {"id": user_id, "phone": phone, "role": "student"}}
-    else:
-        raise HTTPException(400, "AUID or phone number is required")
+async def student_login(data: dict):
+    email = data.get("email")
+    password = data.get("password")
+
+    if not email or not password:
+        raise HTTPException(400, "Email and password required")
+
+    if not email.endswith("@acharya.ac.in"):
+        raise HTTPException(400, "Use college email")
+
+    user = await db.users.find_one({"email": email, "role": "student"})
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if not verify_password(password, user["password_hash"]):
+        raise HTTPException(401, "Invalid password")
+
+    token = create_token(str(user["_id"]), "student", {"email": email})
+
+    return {
+        "token": token,
+        "user": {
+            "email": user["email"],
+            "auid": user.get("auid"),
+            "role": user["role"]
+        }
+    }
 @api_router.post("/auth/register")
 async def register_user(data: dict):
     email = data.get("email")
