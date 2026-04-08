@@ -297,8 +297,8 @@ async def root():
     return {"message": "CampusBite API running"}
 @api_router.post("/auth/student/login")
 async def student_login(data: dict):
-    email = data.get("email")
-    password = data.get("password")
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
 
     if not email or not password:
         raise HTTPException(400, "Email and password required")
@@ -326,10 +326,10 @@ async def student_login(data: dict):
     }
 @api_router.post("/auth/register")
 async def register_user(data: dict):
-    email = data.get("email")
-    auid = data.get("auid")
-    phone = data.get("phone")
-    password = data.get("password")
+    email = (data.get("email") or "").strip().lower()
+    auid = (data.get("auid") or "").strip().upper()
+    phone = (data.get("phone") or "").strip()
+    password = data.get("password") or ""
 
     if not email or not password or not auid:
         raise HTTPException(400, "Missing required fields")
