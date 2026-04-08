@@ -322,7 +322,38 @@ async def student_login(req: StudentLoginReq):
         return {"token": token, "user": {"id": user_id, "phone": phone, "role": "student"}}
     else:
         raise HTTPException(400, "AUID or phone number is required")
+@api_router.post("/auth/register")
+async def register_user(data: dict):
+    email = data.get("email")
+    auid = data.get("auid")
+    phone = data.get("phone")
+    password = data.get("password")
 
+    if not email or not password or not auid:
+        raise HTTPException(400, "Missing required fields")
+
+    if not email.endswith("@acharya.ac.in"):
+        raise HTTPException(400, "Use college email")
+
+    existing = await db.users.find_one({
+        "$or": [{"email": email}, {"auid": auid}]
+    })
+
+    if existing:
+        raise HTTPException(400, "User already exists")
+
+    hashed_pw = hash_password(password)
+
+    await db.users.insert_one({
+        "email": email,
+        "auid": auid,
+        "phone": phone,
+        "password_hash": hashed_pw,
+        "role": "student",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+    return {"message": "Registered successfully"}
 @api_router.post("/auth/staff/login")
 async def staff_login(req: StaffLoginReq):
     email = req.email.strip().lower()
