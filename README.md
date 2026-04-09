@@ -75,10 +75,11 @@ REACT_APP_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 MONGO_URL=mongodb://localhost:27017
 DB_NAME=campusbite
-JWT_SECRET=your-secret-key
-CORS_ORIGINS=https://your-frontend-url.com
+JWT_SECRET=your-strong-random-secret-key    # REQUIRED - server will not start without this
+CORS_ORIGINS=https://your-frontend-url.com  # REQUIRED - comma-separated list of allowed origins
 ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=your-strong-admin-password
+ADMIN_PASSWORD=your-strong-admin-password    # REQUIRED (min 8 chars) - for seeding admin account
+STAFF_SEED_PASSWORD=your-strong-staff-pass   # REQUIRED (min 8 chars) - for seeding staff accounts
 
 # Supabase Auth (college-restricted students)
 SUPABASE_URL=https://your-project.supabase.co
