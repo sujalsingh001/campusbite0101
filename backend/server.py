@@ -22,7 +22,9 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
+JWT_SECRET = os.environ.get('JWT_SECRET', '')
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET environment variable is required. Set it to a strong random string.")
 JWT_ALGORITHM = "HS256"
 
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
@@ -250,9 +252,12 @@ async def seed_data():
         logger.info("Seeded menu items")
 
     admin_email = os.environ.get('ADMIN_EMAIL', 'admin@campusbite.com')
-    admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+    admin_password = os.environ.get('ADMIN_PASSWORD', '')
+    if not admin_password or len(admin_password) < 8:
+        logger.warning("ADMIN_PASSWORD env var is missing or too short (<8 chars). Skipping admin seed.")
+        admin_password = None
     existing_admin = await db.users.find_one({"email": admin_email, "role": "admin"})
-    if not existing_admin:
+    if not existing_admin and admin_password:
         await db.users.insert_one({
             "email": admin_email,
             "password_hash": hash_password(admin_password),
@@ -262,20 +267,24 @@ async def seed_data():
         })
         logger.info("Seeded admin")
 
-    staff_list = [
-        {"email": "maincanteen@ait.edu", "name": "Main Canteen Staff", "canteen_id": "main"},
-        {"email": "quickbites@ait.edu", "name": "Quick Bites Staff", "canteen_id": "quick"},
-        {"email": "juiceshakes@ait.edu", "name": "Juice & Shakes Staff", "canteen_id": "juice"},
-        {"email": "southexpress@ait.edu", "name": "South Express Staff", "canteen_id": "south"},
-    ]
-    for s in staff_list:
-        if not await db.users.find_one({"email": s["email"]}):
-            await db.users.insert_one({
-                **s, "password_hash": hash_password("staff123"),
-                "role": "canteen_staff",
-                "created_at": datetime.now(timezone.utc).isoformat()
-            })
-    logger.info("Seeded staff")
+    staff_seed_password = os.environ.get('STAFF_SEED_PASSWORD', '')
+    if not staff_seed_password or len(staff_seed_password) < 8:
+        logger.warning("STAFF_SEED_PASSWORD env var is missing or too short (<8 chars). Skipping staff seed.")
+    else:
+        staff_list = [
+            {"email": "maincanteen@ait.edu", "name": "Main Canteen Staff", "canteen_id": "main"},
+            {"email": "quickbites@ait.edu", "name": "Quick Bites Staff", "canteen_id": "quick"},
+            {"email": "juiceshakes@ait.edu", "name": "Juice & Shakes Staff", "canteen_id": "juice"},
+            {"email": "southexpress@ait.edu", "name": "South Express Staff", "canteen_id": "south"},
+        ]
+        for s in staff_list:
+            if not await db.users.find_one({"email": s["email"]}):
+                await db.users.insert_one({
+                    **s, "password_hash": hash_password(staff_seed_password),
+                    "role": "canteen_staff",
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+        logger.info("Seeded staff")
 
     if not await db.counters.find_one({"_id": "token_counter"}):
         await db.counters.insert_one({"_id": "token_counter", "seq": 0})
@@ -295,10 +304,14 @@ async def seed_data():
 @api_router.get("/")
 async def root():
     return {"message": "CampusBite API running"}
+class StudentEmailLoginReq(BaseModel):
+    email: str
+    password: str
+
 @api_router.post("/auth/student/login")
-async def student_login(data: dict):
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+async def student_login(data: StudentEmailLoginReq):
+    email = data.email.strip().lower()
+    password = data.password
 
     if not email or not password:
         raise HTTPException(400, "Email and password required")
@@ -324,15 +337,24 @@ async def student_login(data: dict):
             "role": user["role"]
         }
     }
+class RegisterReq(BaseModel):
+    email: str
+    password: str
+    auid: str
+    phone: Optional[str] = ""
+
 @api_router.post("/auth/register")
-async def register_user(data: dict):
-    email = (data.get("email") or "").strip().lower()
-    auid = (data.get("auid") or "").strip().upper()
-    phone = (data.get("phone") or "").strip()
-    password = data.get("password") or ""
+async def register_user(data: RegisterReq):
+    email = data.email.strip().lower()
+    auid = data.auid.strip().upper()
+    phone = (data.phone or "").strip()
+    password = data.password
 
     if not email or not password or not auid:
         raise HTTPException(400, "Missing required fields")
+
+    if len(password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
 
     if not email.endswith("@acharya.ac.in"):
         raise HTTPException(400, "Use college email")
@@ -425,7 +447,19 @@ async def create_order(req: CreateOrderReq, request: Request):
     token_number = await get_next_token()
     pending = await db.orders.count_documents({"canteen_id": req.canteen_id, "status": {"$in": ["placed", "preparing"]}})
     est_minutes = max(5, min(30, (pending + 1) * 5))
-    total = sum(i.price * i.qty for i in req.items)
+    # Validate prices server-side from database
+    menu_item_ids = [i.item_id for i in req.items]
+    db_items = await db.menu_items.find(
+        {"item_id": {"$in": menu_item_ids}, "canteen_id": req.canteen_id, "available": True},
+        {"_id": 0, "item_id": 1, "price": 1}
+    ).to_list(len(menu_item_ids))
+    db_price_map = {item["item_id"]: item["price"] for item in db_items}
+
+    for i in req.items:
+        if i.item_id not in db_price_map:
+            raise HTTPException(400, f"Item '{i.item_id}' is not available in this canteen")
+
+    total = sum(db_price_map[i.item_id] * i.qty for i in req.items)
     student_identifier = payload.get("auid") or payload.get("phone", "unknown")
     
     # Determine payment status and priority
@@ -812,9 +846,14 @@ async def admin_delete_staff(staff_id: str, request: Request):
 
 app.include_router(api_router)
 
+_cors_origins_raw = os.environ.get('CORS_ORIGINS', '')
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(',') if o.strip()] if _cors_origins_raw else []
+if not _cors_origins:
+    logger.warning("CORS_ORIGINS not set. No cross-origin requests will be allowed. Set it to your frontend URL.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

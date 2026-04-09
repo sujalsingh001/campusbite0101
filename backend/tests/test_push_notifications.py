@@ -9,12 +9,12 @@ import uuid
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
-# Test credentials from test_credentials.md
-STUDENT_AUID = "AIT24BEIS001"
-STAFF_EMAIL = "maincanteen@ait.edu"
-STAFF_PASSWORD = "staff123"
-ADMIN_EMAIL = "sujalsinghrathore52@gmail.com"
-ADMIN_PASSWORD = "Ssr@2004"
+# Test credentials - sourced from environment variables
+STUDENT_AUID = os.environ.get('TEST_STUDENT_AUID', 'AIT24BEIS001')
+STAFF_EMAIL = os.environ.get('TEST_STAFF_EMAIL', 'maincanteen@ait.edu')
+STAFF_PASSWORD = os.environ.get('TEST_STAFF_PASSWORD', '')
+ADMIN_EMAIL = os.environ.get('TEST_ADMIN_EMAIL', '')
+ADMIN_PASSWORD = os.environ.get('TEST_ADMIN_PASSWORD', '')
 
 
 class TestHealthAndBasics:
