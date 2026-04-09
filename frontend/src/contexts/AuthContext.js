@@ -30,7 +30,37 @@ export function AuthProvider({ children }) {
   }, [setUser]);
 
   const registerStudent = useCallback(async (payload) => {
-    const { data } = await API.post('/auth/register', payload);
+    const email = (payload.email || '').trim().toLowerCase();
+    const auid = (payload.auid || '').trim().toUpperCase();
+    const phone = (payload.phone || '').trim();
+    const password = payload.password || '';
+
+    if (!email || !auid || !phone || !password) {
+      throw new Error('All fields are required');
+    }
+
+    if (!email.endsWith('@acharya.ac.in')) {
+      throw new Error('Use your @acharya.ac.in college email');
+    }
+
+    if (auid.length <= 7 || !/[A-Za-z]/.test(auid) || !/[0-9]/.test(auid)) {
+      throw new Error('AUID must be 8+ characters with letters and numbers');
+    }
+
+    if (!/^\d{10}$/.test(phone)) {
+      throw new Error('Phone number must be exactly 10 digits');
+    }
+
+    if (password.length < 6) {
+      throw new Error('Password must be at least 6 characters');
+    }
+
+    const { data } = await API.post('/auth/register', {
+      email,
+      auid,
+      phone,
+      password,
+    });
     return data;
   }, []);
 

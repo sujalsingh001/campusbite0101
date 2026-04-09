@@ -107,7 +107,7 @@ export default function StudentLogin() {
       setActiveTab("login");
       setPassword("");
     } catch (err) {
-      setError(err.response?.data?.detail || "Registration failed");
+      setError(err.response?.data?.detail || err.message || "Registration failed");
     } finally {
       setLoading(false);
     }
