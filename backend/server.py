@@ -255,16 +255,19 @@ async def seed_data():
 
     admin_email = os.environ.get('ADMIN_EMAIL', 'admin@campusbite.com')
     admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
-    existing_admin = await db.users.find_one({"email": admin_email, "role": "admin"})
-    if not existing_admin:
-        await db.users.insert_one({
+    await db.users.update_one(
+        {"email": admin_email, "role": "admin"},
+        {"$set": {
             "email": admin_email,
             "password_hash": hash_password(admin_password),
             "name": "Super Admin",
-            "role": "admin",
+            "role": "admin"
+        }, "$setOnInsert": {
             "created_at": datetime.now(timezone.utc).isoformat()
-        })
-        logger.info("Seeded admin")
+        }},
+        upsert=True
+    )
+    logger.info("Seeded admin")
 
     staff_list = [
         {"email": "maincanteen@ait.edu", "name": "Main Canteen Staff", "canteen_id": "main"},
