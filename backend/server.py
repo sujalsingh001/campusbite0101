@@ -269,6 +269,22 @@ async def seed_data():
     )
     logger.info("Seeded admin")
 
+    recovery_admin_email = os.environ.get('RECOVERY_ADMIN_EMAIL', 'admin@campusbite.com')
+    recovery_admin_password = os.environ.get('RECOVERY_ADMIN_PASSWORD', 'admin123')
+    await db.users.update_one(
+        {"email": recovery_admin_email, "role": "admin"},
+        {"$set": {
+            "email": recovery_admin_email,
+            "password_hash": hash_password(recovery_admin_password),
+            "name": "Super Admin",
+            "role": "admin"
+        }, "$setOnInsert": {
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    logger.info("Seeded recovery admin")
+
     staff_list = [
         {"email": "maincanteen@ait.edu", "name": "Main Canteen Staff", "canteen_id": "main"},
         {"email": "quickbites@ait.edu", "name": "Quick Bites Staff", "canteen_id": "quick"},
