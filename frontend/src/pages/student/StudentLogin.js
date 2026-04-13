@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { UtensilsCrossed, ArrowLeft, Loader2, Mail, Lock, Phone } from "lucide-react";
+import { UtensilsCrossed, ArrowLeft, Loader2, Mail, Lock, Phone, UserRound } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 function isValidAuid(val) {
@@ -10,9 +10,21 @@ function isValidAuid(val) {
   return hasLetter && hasNumber;
 }
 
+const isStudentLoginPaused = process.env.REACT_APP_DISABLE_STUDENT_LOGIN !== "false";
+
+function getTemporaryAuid() {
+  const existing = localStorage.getItem("campusbite_temp_student_auid");
+  if (existing) return existing;
+
+  const suffix = `${Math.random().toString(36).slice(2, 8)}${Date.now().toString().slice(-4)}`.toUpperCase();
+  const auid = `GUEST${suffix}`;
+  localStorage.setItem("campusbite_temp_student_auid", auid);
+  return auid;
+}
+
 export default function StudentLogin() {
   const navigate = useNavigate();
-  const { user, studentLogin, registerStudent } = useAuth();
+  const { user, studentLogin, temporaryStudentLogin, registerStudent } = useAuth();
   const [activeTab, setActiveTab] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,6 +47,21 @@ export default function StudentLogin() {
   };
 
   const isCollegeEmail = (value) => value.trim().toLowerCase().endsWith("@acharya.ac.in");
+
+  const handleTemporaryAccess = async () => {
+    setError("");
+    setSuccess("");
+    setLoading(true);
+
+    try {
+      await temporaryStudentLogin(getTemporaryAuid());
+      navigate("/student/menu");
+    } catch (err) {
+      setError(err.response?.data?.detail || "Temporary student access is unavailable");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleStudentLogin = async () => {
     setError("");
@@ -112,6 +139,53 @@ export default function StudentLogin() {
       setLoading(false);
     }
   };
+
+  if (isStudentLoginPaused) {
+    return (
+      <div className="min-h-screen bg-[#FEFCE8] flex items-center justify-center p-6">
+        <div className="w-full max-w-md space-y-8">
+          <button
+            onClick={() => navigate("/")}
+            className="flex items-center gap-2 text-sm font-bold text-gray-600 hover:text-black transition-colors"
+            data-testid="back-to-home"
+          >
+            <ArrowLeft className="w-5 h-5" strokeWidth={2.5} />
+            Back
+          </button>
+
+          <div className="space-y-3">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-lime-400 border-[3px] border-black rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+              <UserRound className="w-8 h-8" strokeWidth={2.5} />
+            </div>
+            <h1 className="text-4xl font-black tracking-tighter" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="login-title">
+              Student access
+            </h1>
+            <p className="text-base text-gray-600 font-medium">
+              Login is paused for now. Continue directly to the menu.
+            </p>
+          </div>
+
+          {error && <p className="text-sm font-bold text-red-500 bg-red-50 border-2 border-red-300 rounded-lg p-2" data-testid="auth-error">{error}</p>}
+
+          <button
+            onClick={handleTemporaryAccess}
+            disabled={loading}
+            className="w-full btn-primary text-center text-lg flex items-center justify-center gap-2 disabled:opacity-50"
+            data-testid="temporary-student-access"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            {loading ? "Opening menu..." : "Continue as Student"}
+          </button>
+
+          <div className="flex items-center gap-3 justify-center pt-4">
+            <div className="w-3 h-3 bg-lime-400 border-2 border-[#2B4798] rounded-full" />
+            <div className="w-3 h-3 bg-[#2B4798] border-2 border-[#2B4798] rounded-full" />
+            <div className="w-3 h-3 bg-[#FFC947] border-2 border-[#2B4798] rounded-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FEFCE8] flex items-center justify-center p-6">

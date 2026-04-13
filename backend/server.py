@@ -24,6 +24,7 @@ from datetime import datetime, timezone, timedelta
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
 JWT_ALGORITHM = "HS256"
+TEMP_DISABLE_STUDENT_LOGIN = os.environ.get('TEMP_DISABLE_STUDENT_LOGIN', 'true').lower() in {'1', 'true', 'yes', 'on'}
 
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
@@ -143,6 +144,9 @@ class StudentLoginReq(BaseModel):
 class StaffLoginReq(BaseModel):
     email: str
     password: str
+
+class TemporaryStudentLoginReq(BaseModel):
+    auid: Optional[str] = None
 
 class OrderItem(BaseModel):
     item_id: str
@@ -314,7 +318,11 @@ async def student_login(data: dict):
     if not verify_password(password, user["password_hash"]):
         raise HTTPException(401, "Invalid password")
 
-    token = create_token(str(user["_id"]), "student", {"email": email})
+    token = create_token(str(user["_id"]), "student", {
+        "email": email,
+        "auid": user.get("auid"),
+        "phone": user.get("phone")
+    })
 
     return {
         "token": token,
@@ -322,6 +330,44 @@ async def student_login(data: dict):
             "email": user["email"],
             "auid": user.get("auid"),
             "role": user["role"]
+        }
+    }
+
+@api_router.post("/auth/student/temporary-login")
+async def temporary_student_login(req: TemporaryStudentLoginReq):
+    if not TEMP_DISABLE_STUDENT_LOGIN:
+        raise HTTPException(403, "Temporary student access is disabled")
+
+    cleaned_auid = ''.join(ch for ch in (req.auid or "").upper() if ch.isalnum())[:24]
+    if len(cleaned_auid) < 8:
+        cleaned_auid = f"GUEST{uuid.uuid4().hex[:10].upper()}"
+
+    user = await db.users.find_one({"auid": cleaned_auid, "role": "student"})
+    if not user:
+        doc = {
+            "email": f"{cleaned_auid.lower()}@temporary.local",
+            "auid": cleaned_auid,
+            "phone": "",
+            "password_hash": hash_password(uuid.uuid4().hex),
+            "role": "student",
+            "temporary": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        result = await db.users.insert_one(doc)
+        user_id = str(result.inserted_id)
+        user = {**doc, "_id": result.inserted_id}
+    else:
+        user_id = str(user["_id"])
+
+    token = create_token(user_id, "student", {"auid": cleaned_auid, "temporary": True})
+    return {
+        "token": token,
+        "user": {
+            "id": user_id,
+            "email": user["email"],
+            "auid": cleaned_auid,
+            "role": "student",
+            "temporary": True
         }
     }
 @api_router.post("/auth/register")

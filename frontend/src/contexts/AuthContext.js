@@ -29,6 +29,13 @@ export function AuthProvider({ children }) {
     return data;
   }, [setUser]);
 
+  const temporaryStudentLogin = useCallback(async (auid) => {
+    const { data } = await API.post('/auth/student/temporary-login', { auid });
+    localStorage.setItem('campusbite_token', data.token);
+    setUser(data.user);
+    return data;
+  }, [setUser]);
+
   const registerStudent = useCallback(async (payload) => {
     const { data } = await API.post('/auth/register', payload);
     return data;
@@ -57,11 +64,12 @@ export function AuthProvider({ children }) {
     user, 
     loading, 
     studentLogin, 
+    temporaryStudentLogin,
     registerStudent,
     staffLogin, 
     adminLogin, 
     logout 
-  }), [user, loading, studentLogin, registerStudent, staffLogin, adminLogin, logout]);
+  }), [user, loading, studentLogin, temporaryStudentLogin, registerStudent, staffLogin, adminLogin, logout]);
 
   return (
     <AuthContext.Provider value={value}>
