@@ -1,7 +1,9 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: (process.env.REACT_APP_BACKEND_URL || "https://campusbite0101-production.up.railway.app") + "/api",
+  baseURL: process.env.REACT_APP_BACKEND_URL
+    ? `${process.env.REACT_APP_BACKEND_URL}/api`
+    : "/api",
 });
 
 // Attach token automatically
