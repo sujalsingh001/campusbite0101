@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import API from "@/lib/api";
 
 export default function StudentCart() {
+  const QR_EXPIRY_SECONDS = 4 * 60;
   const navigate = useNavigate();
   const { user } = useAuth();
   const { items, canteenId, canteenName, total, addItem, removeItem, clearCart } = useCart();
@@ -17,11 +18,32 @@ export default function StudentCart() {
   const [qrEnabled, setQrEnabled] = useState(false);
   const [utr, setUtr] = useState("");
   const [refId, setRefId] = useState("");
+  const [qrTimeLeft, setQrTimeLeft] = useState(QR_EXPIRY_SECONDS);
+  const [qrSessionStartedAt, setQrSessionStartedAt] = useState("");
 
   useEffect(() => {
     // Generate unique reference ID for this cart session
     setRefId(`REF${Date.now()}`);
   }, []);
+
+  useEffect(() => {
+    if (!showQR) {
+      setQrTimeLeft(QR_EXPIRY_SECONDS);
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      setQrTimeLeft((current) => {
+        if (current <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [showQR]);
 
   useEffect(() => {
     if (canteenId) {
@@ -52,11 +74,58 @@ export default function StudentCart() {
 
   if (!user) { navigate("/student/login"); return null; }
 
+  const isQrExpired = qrTimeLeft === 0;
+  const isValidUtr = /^\d{12}$/.test(utr);
+  const qrTimerDisplay = `${String(Math.floor(qrTimeLeft / 60)).padStart(2, "0")}:${String(qrTimeLeft % 60).padStart(2, "0")}`;
+
+  const handleQrDownload = async () => {
+    if (!qrCode) return;
+
+    try {
+      const response = await fetch(qrCode);
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `campusbite-qr-${canteenId || "canteen"}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch {
+      const link = document.createElement("a");
+      link.href = qrCode;
+      link.download = `campusbite-qr-${canteenId || "canteen"}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+  };
+
+  const handleUtrChange = (e) => {
+    setUtr(e.target.value.replace(/\D/g, "").slice(0, 12));
+  };
+
+  const openQrModal = () => {
+    setQrSessionStartedAt(new Date().toISOString());
+    setQrTimeLeft(QR_EXPIRY_SECONDS);
+    setShowQR(true);
+  };
+
+  const closeQrModal = () => {
+    setShowQR(false);
+    setQrSessionStartedAt("");
+  };
+
   const handlePlaceOrder = async (paymentMethod = "none") => {
-    if (items.length === 0) return;
+    if (items.length === 0 || placing) return;
     
     // Validate UTR if QR payment selected
     if (paymentMethod === "qr") {
+      if (isQrExpired) {
+        setError("QR expired. Please refresh");
+        return;
+      }
       const trimmedUtr = utr.trim();
       if (!trimmedUtr) {
         setError("Please enter UTR (transaction ID)");
@@ -65,6 +134,10 @@ export default function StudentCart() {
       // UTR format validation: 12 digits
       if (!/^\d{12}$/.test(trimmedUtr)) {
         setError("UTR must be exactly 12 digits");
+        return;
+      }
+      if (!qrSessionStartedAt) {
+        setError("Payment session expired");
         return;
       }
     }
@@ -77,13 +150,16 @@ export default function StudentCart() {
         items: items.map(i => ({ item_id: i.item_id, name: i.name, qty: i.qty, price: i.price })),
         payment_method: paymentMethod,
         utr: paymentMethod === "qr" ? utr.trim() : undefined,
+        submitted_amount: paymentMethod === "qr" ? total : undefined,
+        payment_session_id: paymentMethod === "qr" ? refId : undefined,
+        payment_session_started_at: paymentMethod === "qr" ? qrSessionStartedAt : undefined,
       });
       clearCart();
-      setShowQR(false);
+      closeQrModal();
       setUtr("");
       navigate(`/student/order/${data.order_id}`);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to place order");
+      setError(err.response?.data?.message || err.response?.data?.detail || "Failed to place order");
     } finally {
       setPlacing(false);
     }
@@ -168,7 +244,7 @@ export default function StudentCart() {
       <div className="fixed bottom-0 left-0 right-0 z-50">
         <div className="max-w-md mx-auto px-5 pb-5 space-y-2">
           {qrCode && qrEnabled && (
-            <button onClick={() => setShowQR(true)} className="w-full bg-white border-[3px] border-black rounded-xl p-3 text-center font-bold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2">
+            <button onClick={openQrModal} className="w-full bg-white border-[3px] border-black rounded-xl p-3 text-center font-bold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2">
               <QrCode className="w-5 h-5" strokeWidth={2.5} />
               Pay via QR/UPI
             </button>
@@ -182,17 +258,20 @@ export default function StudentCart() {
 
       {/* QR Code Modal */}
       {showQR && (
-        <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-5" onClick={() => setShowQR(false)}>
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-5" onClick={closeQrModal}>
           <div className="card-brutal max-w-sm w-full p-6 space-y-4 relative" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setShowQR(false)} className="absolute top-4 right-4 w-8 h-8 bg-gray-200 border-2 border-black rounded-lg flex items-center justify-center btn-brutal">
+            <button onClick={closeQrModal} className="absolute top-4 right-4 w-8 h-8 bg-gray-200 border-2 border-black rounded-lg flex items-center justify-center btn-brutal">
               <X className="w-5 h-5" strokeWidth={2.5} />
             </button>
             <h3 className="text-xl font-black" style={{ fontFamily: "'Outfit', sans-serif" }}>Pay via UPI</h3>
+            <p className="text-sm font-bold text-gray-600">{qrTimerDisplay}</p>
             <div className="bg-white border-2 border-black rounded-lg p-4 flex flex-col items-center">
               {qrCode ? (
                 <>
                   <img src={qrCode} alt="QR Code" className="w-64 h-64 border-2 border-black rounded-lg" onError={(e) => { e.target.src = 'https://via.placeholder.com/300x300/f0f0f0/666?text=QR+Code+Error'; }} />
                   <p className="text-sm font-bold text-gray-600 mt-3">Scan with any UPI app</p>
+                  <p className="text-sm text-gray-600 mt-1">Amount to Pay: <span className="font-bold">₹{total}</span></p>
+                  <button type="button" onClick={handleQrDownload} className="text-sm font-bold text-gray-600 mt-1">Download QR</button>
                   {upiId && <p className="text-xs font-mono text-gray-500 mt-1">{upiId}</p>}
                   {upiId && (
                     <a href={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(canteenName || 'Canteen')}&tn=Order-${refId}&am=${total}&cu=INR`} className="mt-3 bg-white border-2 border-black rounded-lg px-4 py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
@@ -211,19 +290,22 @@ export default function StudentCart() {
               <input
                 type="text"
                 value={utr}
-                onChange={(e) => setUtr(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                onChange={handleUtrChange}
                 placeholder="409123456789"
                 maxLength={12}
                 className="input-brutal w-full font-mono"
+                disabled={isQrExpired}
               />
+              {utr && !isValidUtr && <p className="text-xs text-red-500 mt-1">Enter valid 12-digit UTR</p>}
               <p className="text-xs text-gray-500 mt-1">Find UTR/Transaction ID in your UPI app after payment</p>
             </div>
             <p className="text-xs font-semibold text-gray-600 bg-yellow-100 border-2 border-yellow-400 rounded-lg p-2">
               💡 After payment, enter the UTR and click "I have paid" below
             </p>
-            <button onClick={() => handlePlaceOrder("qr")} disabled={placing || !utr.trim()} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-3 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50">
+            {isQrExpired && <p className="text-xs text-red-500">QR expired. Please refresh</p>}
+            <button onClick={() => handlePlaceOrder("qr")} disabled={placing || isQrExpired || !isValidUtr} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-3 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50">
               {placing ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" strokeWidth={2.5} />}
-              {placing ? "Confirming..." : "I have paid"}
+              {placing ? "Verifying..." : "I have paid"}
             </button>
           </div>
         </div>

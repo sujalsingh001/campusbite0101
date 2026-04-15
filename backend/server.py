@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -9,11 +9,13 @@ load_dotenv(ROOT_DIR / '.env')
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
 import os
 import logging
 import uuid
 import json
+import re
 import bcrypt
 import jwt as pyjwt
 import asyncio
@@ -25,6 +27,8 @@ from datetime import datetime, timezone, timedelta
 JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
 JWT_ALGORITHM = "HS256"
 TEMP_DISABLE_STUDENT_LOGIN = os.environ.get('TEMP_DISABLE_STUDENT_LOGIN', 'true').lower() in {'1', 'true', 'yes', 'on'}
+PAYMENT_SESSION_WINDOW_SECONDS = 4 * 60
+MAX_PAYMENT_ATTEMPTS = 3
 
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
@@ -135,6 +139,26 @@ async def get_current_user(request: Request) -> dict:
     except pyjwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+def payment_error(message: str, status_code: int = 400):
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "error", "message": message, "detail": message}
+    )
+
 # ── Models ──
 
 class StudentLoginReq(BaseModel):
@@ -159,6 +183,9 @@ class CreateOrderReq(BaseModel):
     items: List[OrderItem]
     payment_method: Optional[str] = "none"  # "none" or "qr"
     utr: Optional[str] = None  # UTR for QR payments
+    submitted_amount: Optional[int] = None
+    payment_session_id: Optional[str] = None
+    payment_session_started_at: Optional[str] = None
 
 class StatusUpdateReq(BaseModel):
     status: str
@@ -312,6 +339,9 @@ async def seed_data():
     await db.menu_items.create_index("canteen_id")
     await db.canteens.create_index("canteen_id")
     await db.push_subscriptions.create_index("student_id")
+    await db.payment_utrs.create_index("utr", unique=True)
+    await db.payment_utrs.create_index("order_id")
+    await db.payment_sessions.create_index("session_id", unique=True)
 
 # ── Auth Routes ──
 
@@ -480,25 +510,160 @@ async def create_order(req: CreateOrderReq, request: Request):
     qr_enabled = canteen.get("qr_enabled", False)
     if req.payment_method == "qr" and not qr_enabled:
         raise HTTPException(400, "QR payment not enabled for this canteen")
-    
-    # Validate UTR if provided
-    if req.utr:
-        utr_exists = await db.orders.find_one({"utr": req.utr})
-        if utr_exists:
-            raise HTTPException(400, "This UTR has already been used")
-    
+
+    now = utc_now()
+    now_iso = now.isoformat()
+    total = sum(i.price * i.qty for i in req.items)
+    student_identifier = payload.get("auid") or payload.get("phone", "unknown")
+
+    # Determine payment status and priority
+    payment_status = "unpaid"
+    priority = False
+    payment_metadata = {}
+    order_is_suspicious = False
+
+    if req.payment_method == "qr":
+        session_id = (req.payment_session_id or "").strip()
+        session_started_at = parse_iso_datetime(req.payment_session_started_at)
+        submitted_amount = req.submitted_amount if req.submitted_amount is not None else total
+        raw_utr = (req.utr or "").strip()
+
+        if not session_id or not session_started_at:
+            return payment_error("Payment session expired")
+
+        session_expires_at = session_started_at + timedelta(seconds=PAYMENT_SESSION_WINDOW_SECONDS)
+        session_doc = await db.payment_sessions.find_one({"session_id": session_id})
+
+        if not session_doc:
+            session_doc = {
+                "session_id": session_id,
+                "student_auid": student_identifier,
+                "canteen_id": req.canteen_id,
+                "total": total,
+                "attempts": 0,
+                "failed_attempts": 0,
+                "blocked": False,
+                "is_suspicious": False,
+                "started_at": session_started_at.isoformat(),
+                "expires_at": session_expires_at.isoformat(),
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            }
+            await db.payment_sessions.insert_one(session_doc)
+        else:
+            stored_started_at = parse_iso_datetime(session_doc.get("started_at"))
+            stored_expires_at = parse_iso_datetime(session_doc.get("expires_at"))
+            if stored_started_at:
+                session_started_at = stored_started_at
+            if stored_expires_at:
+                session_expires_at = stored_expires_at
+
+        async def reject_payment(reason: str, suspicious: bool = False, status_code: int = 400):
+            next_failed_attempts = int(session_doc.get("failed_attempts", 0)) + 1
+            should_block = next_failed_attempts >= MAX_PAYMENT_ATTEMPTS
+            session_flagged = suspicious or next_failed_attempts > 1 or session_doc.get("is_suspicious", False)
+            await db.payment_sessions.update_one(
+                {"session_id": session_id},
+                {
+                    "$inc": {"attempts": 1, "failed_attempts": 1},
+                    "$set": {
+                        "updated_at": utc_now().isoformat(),
+                        "last_failure_reason": reason,
+                        "blocked": should_block,
+                        "is_suspicious": session_flagged,
+                    }
+                }
+            )
+            logger.warning(
+                "QR payment rejected for session %s: %s (student=%s canteen=%s suspicious=%s)",
+                session_id,
+                reason,
+                student_identifier,
+                req.canteen_id,
+                session_flagged,
+            )
+            return payment_error("Too many attempts" if should_block else reason, 429 if should_block else status_code)
+
+        if session_doc.get("blocked") or int(session_doc.get("failed_attempts", 0)) >= MAX_PAYMENT_ATTEMPTS:
+            await db.payment_sessions.update_one(
+                {"session_id": session_id},
+                {"$set": {"blocked": True, "updated_at": now_iso, "is_suspicious": True, "last_failure_reason": "Too many attempts"}}
+            )
+            logger.warning("Blocked QR payment session reused: %s", session_id)
+            return payment_error("Too many attempts", 429)
+
+        if session_doc.get("successful_order_id"):
+            existing_order = await db.orders.find_one({"order_id": session_doc["successful_order_id"]}, {"_id": 0})
+            if existing_order:
+                return {
+                    "status": "success",
+                    "message": "Payment submitted",
+                    "order_id": existing_order["order_id"],
+                    "order": existing_order,
+                }
+
+        if session_expires_at < now:
+            return await reject_payment("Payment session expired")
+
+        if not re.fullmatch(r"\d{12}", raw_utr):
+            return await reject_payment("Enter valid 12-digit UTR")
+
+        if submitted_amount != total:
+            return await reject_payment("Payment amount mismatch", suspicious=True)
+
+        existing_utr = await db.payment_utrs.find_one({"utr": raw_utr})
+        if existing_utr:
+            existing_amount = existing_utr.get("amount")
+            duplicate_amount_mismatch = existing_amount is not None and existing_amount != submitted_amount
+            await db.payment_utrs.update_one(
+                {"utr": raw_utr},
+                {
+                    "$inc": {"duplicate_attempts": 1},
+                    "$set": {
+                        "updated_at": now_iso,
+                        "is_suspicious": True,
+                        "last_duplicate_amount": submitted_amount,
+                        "last_duplicate_session_id": session_id,
+                        "last_duplicate_student_auid": student_identifier,
+                    }
+                }
+            )
+            if duplicate_amount_mismatch:
+                logger.warning(
+                    "Suspicious duplicate UTR with different amount: utr=%s existing_amount=%s new_amount=%s",
+                    raw_utr,
+                    existing_amount,
+                    submitted_amount,
+                )
+            return await reject_payment("UTR already used", suspicious=True)
+
+        payment_status = "paid"
+        priority = True
+        order_is_suspicious = bool(session_doc.get("is_suspicious")) or int(session_doc.get("failed_attempts", 0)) > 1
+        payment_metadata = {
+            "utr": raw_utr,
+            "submitted_amount": submitted_amount,
+            "payment_session_id": session_id,
+            "payment_session_started_at": session_started_at.isoformat(),
+            "payment_session_expires_at": session_expires_at.isoformat(),
+            "payment_attempts": int(session_doc.get("attempts", 0)) + 1,
+            "payment_failed_attempts": int(session_doc.get("failed_attempts", 0)),
+        }
+
+        if order_is_suspicious:
+            logger.warning(
+                "QR payment accepted but flagged for review: session=%s student=%s canteen=%s",
+                session_id,
+                student_identifier,
+                req.canteen_id,
+            )
+
     token_number = await get_next_token()
     pending = await db.orders.count_documents({"canteen_id": req.canteen_id, "status": {"$in": ["placed", "preparing"]}})
     est_minutes = max(5, min(30, (pending + 1) * 5))
-    total = sum(i.price * i.qty for i in req.items)
-    student_identifier = payload.get("auid") or payload.get("phone", "unknown")
-    
-    # Determine payment status and priority
-    payment_status = "paid" if (req.payment_method == "qr" and req.utr) else "unpaid"
-    priority = True if payment_status == "paid" else False
-    
+    order_id = str(uuid.uuid4())
     order_doc = {
-        "order_id": str(uuid.uuid4()), "token_number": token_number,
+        "order_id": order_id, "token_number": token_number,
         "canteen_id": req.canteen_id, "canteen_name": canteen["name"],
         "student_auid": student_identifier,
         "items": [i.model_dump() for i in req.items],
@@ -506,13 +671,61 @@ async def create_order(req: CreateOrderReq, request: Request):
         "payment_method": req.payment_method or "none",
         "payment_status": payment_status,
         "priority": priority,
-        "utr": req.utr or None,
+        "utr": payment_metadata.get("utr"),
         "estimated_time": f"{est_minutes} min",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "is_suspicious": order_is_suspicious,
+        "created_at": now_iso,
+        **payment_metadata,
     }
-    await db.orders.insert_one(order_doc)
+
+    if req.payment_method == "qr":
+        try:
+            await db.payment_utrs.insert_one({
+                "utr": payment_metadata["utr"],
+                "amount": payment_metadata["submitted_amount"],
+                "order_total": total,
+                "order_id": order_id,
+                "student_auid": student_identifier,
+                "canteen_id": req.canteen_id,
+                "session_id": payment_metadata["payment_session_id"],
+                "is_suspicious": order_is_suspicious,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            })
+        except DuplicateKeyError:
+            logger.warning("Duplicate UTR race detected for %s", payment_metadata["utr"])
+            return payment_error("UTR already used")
+
+    try:
+        await db.orders.insert_one(order_doc)
+    except Exception:
+        if req.payment_method == "qr":
+            await db.payment_utrs.delete_one({"order_id": order_id})
+        raise
+
+    if req.payment_method == "qr":
+        await db.payment_sessions.update_one(
+            {"session_id": payment_metadata["payment_session_id"]},
+            {
+                "$inc": {"attempts": 1},
+                "$set": {
+                    "updated_at": now_iso,
+                    "last_failure_reason": None,
+                    "successful_order_id": order_id,
+                    "used_utr": payment_metadata["utr"],
+                    "used_amount": payment_metadata["submitted_amount"],
+                    "is_suspicious": order_is_suspicious or bool(session_doc.get("is_suspicious", False)),
+                }
+            }
+        )
+
     order_doc.pop("_id", None)
-    return order_doc
+    return {
+        "status": "success",
+        "message": "Payment submitted" if req.payment_method == "qr" else "Order placed",
+        "order_id": order_id,
+        "order": order_doc,
+    }
 
 @api_router.get("/orders/my")
 async def get_my_orders(request: Request):
