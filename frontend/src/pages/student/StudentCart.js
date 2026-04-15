@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Minus, Plus, Trash2, CreditCard, Loader2, QrCode, X } from "lucide-react";
+import { toast } from "sonner";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import API from "@/lib/api";
@@ -104,6 +105,10 @@ export default function StudentCart() {
 
   const handleUtrChange = (e) => {
     setUtr(e.target.value.replace(/\D/g, "").slice(0, 12));
+  };
+
+  const handleUpiInstruction = () => {
+    toast.info("Open any UPI app and scan or upload this QR manually");
   };
 
   const openQrModal = () => {
@@ -269,19 +274,20 @@ export default function StudentCart() {
               {qrCode ? (
                 <>
                   <img src={qrCode} alt="QR Code" className="w-64 h-64 border-2 border-black rounded-lg" onError={(e) => { e.target.src = 'https://via.placeholder.com/300x300/f0f0f0/666?text=QR+Code+Error'; }} />
-                  <p className="text-sm font-bold text-gray-600 mt-3">Scan with any UPI app</p>
-                  <p className="text-sm text-gray-600 mt-1">Amount to Pay: <span className="font-bold">₹{total}</span></p>
+                  <p className="text-sm font-bold text-gray-600 mt-3">Open any UPI app and scan this QR to pay</p>
+                  <p className="text-xs text-gray-500 mt-1 text-center">You can also take a screenshot or download the QR and upload it in your UPI app</p>
+                  <p className="text-sm text-gray-600 mt-1">Amount to Pay: <span className="text-xl font-black">₹{total}</span></p>
                   <button type="button" onClick={handleQrDownload} className="text-sm font-bold text-gray-600 mt-1">Download QR</button>
                   {upiId && <p className="text-xs font-mono text-gray-500 mt-1">{upiId}</p>}
                   {upiId && (
-                    <a href={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(canteenName || 'Canteen')}&tn=Order-${refId}&am=${total}&cu=INR`} className="mt-3 bg-white border-2 border-black rounded-lg px-4 py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
+                    <button type="button" onClick={handleUpiInstruction} className="mt-3 bg-white border-2 border-black rounded-lg px-4 py-2 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] btn-brutal">
                       Open in UPI App
-                    </a>
+                    </button>
                   )}
                 </>
               ) : (
                 <div className="w-64 h-64 border-2 border-black rounded-lg bg-gray-100 flex items-center justify-center">
-                  <p className="text-sm text-gray-500 font-bold text-center px-4">QR code unavailable. Please use "Open in UPI App" below.</p>
+                  <p className="text-sm text-gray-500 font-bold text-center px-4">QR code unavailable. Please upload or use the canteen QR image.</p>
                 </div>
               )}
             </div>

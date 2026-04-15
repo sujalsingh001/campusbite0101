@@ -1,12 +1,15 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent
+UPLOADS_DIR = ROOT_DIR / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
 load_dotenv(ROOT_DIR / '.env')
 
 from starlette.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -39,6 +42,7 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 app = FastAPI()
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -158,6 +162,9 @@ def payment_error(message: str, status_code: int = 400):
         status_code=status_code,
         content={"status": "error", "message": message, "detail": message}
     )
+
+def build_public_file_url(request: Request, filename: str) -> str:
+    return f"{str(request.base_url).rstrip('/')}/uploads/{filename}"
 
 # ── Models ──
 
@@ -973,6 +980,36 @@ async def admin_upload_qr(canteen_id: str, req: UploadQRReq, request: Request):
     if result.matched_count == 0:
         raise HTTPException(404, "Canteen not found")
     return {"canteen_id": canteen_id, "qr_code": req.qr_code}
+
+@api_router.post("/admin/canteens/{canteen_id}/qr/upload")
+async def admin_upload_qr_image(canteen_id: str, request: Request, file: UploadFile = File(...)):
+    payload = await get_current_user(request)
+    if payload["role"] != "admin":
+        raise HTTPException(403, "Forbidden - Only super admin can manage QR codes")
+
+    canteen = await db.canteens.find_one({"canteen_id": canteen_id}, {"_id": 0})
+    if not canteen:
+        raise HTTPException(404, "Canteen not found")
+
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg"}:
+        raise HTTPException(400, "Only PNG and JPG images are allowed")
+
+    stored_name = f"{canteen_id}-{uuid.uuid4().hex}{suffix}"
+    file_path = UPLOADS_DIR / stored_name
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(400, "QR image file is empty")
+
+    with open(file_path, "wb") as output_file:
+        output_file.write(file_bytes)
+
+    qr_url = build_public_file_url(request, stored_name)
+    await db.canteens.update_one(
+        {"canteen_id": canteen_id},
+        {"$set": {"qr_code": qr_url}}
+    )
+    return {"canteen_id": canteen_id, "qr_code": qr_url}
 
 @api_router.patch("/admin/canteens/{canteen_id}/toggle-qr")
 async def admin_toggle_qr(canteen_id: str, enabled: bool, request: Request):

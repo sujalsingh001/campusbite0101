@@ -322,6 +322,7 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
   const [description, setDescription] = useState(canteen.description);
   const [upiId, setUpiId] = useState(canteen.upi_id || "");
   const [qrCode, setQrCode] = useState(canteen.qr_code || "");
+  const [qrFile, setQrFile] = useState(null);
   const [qrEnabled, setQrEnabled] = useState(canteen.qr_enabled || false);
   const [saving, setSaving] = useState(false);
 
@@ -332,7 +333,14 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
       if (qrCode !== canteen.qr_code) {
         await API.patch(`/admin/canteens/${canteen.canteen_id}/qr`, { qr_code: qrCode });
       }
+      if (qrFile) {
+        const formData = new FormData();
+        formData.append("file", qrFile);
+        const { data } = await API.post(`/admin/canteens/${canteen.canteen_id}/qr/upload`, formData);
+        setQrCode(data.qr_code);
+      }
       setEditing(false);
+      setQrFile(null);
       onUpdate();
       toast.success("Canteen updated successfully");
     } catch (e) { 
@@ -362,6 +370,7 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
     setDescription(canteen.description);
     setUpiId(canteen.upi_id || "");
     setQrCode(canteen.qr_code || "");
+    setQrFile(null);
     setEditing(false);
   };
 
@@ -401,6 +410,17 @@ function CanteenCard({ canteen, colorClass, onUpdate }) {
               placeholder="QR Code URL (optional - auto-generated from UPI ID)"
               data-testid={`edit-qr-code-${canteen.canteen_id}`}
             />
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-gray-300">QR Code Image Upload</p>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/jpg"
+                onChange={e => setQrFile(e.target.files?.[0] || null)}
+                className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400 text-xs py-1.5"
+                data-testid={`edit-qr-file-${canteen.canteen_id}`}
+              />
+              {qrFile && <p className="text-xs text-gray-400">{qrFile.name}</p>}
+            </div>
           </div>
         ) : (
           <div className="flex-1">
