@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function StudentLogin() {
   const navigate = useNavigate();
-  const { user, studentLogin, registerStudent } = useAuth();
+  const { user, studentLogin, registerStudent, resetStudentPassword } = useAuth();
   const [activeTab, setActiveTab] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -79,6 +79,31 @@ export default function StudentLogin() {
       navigate("/student/menu");
     } catch (err) {
       setError(err.message || "Registration failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError("");
+
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) {
+      setError("Enter your college email first");
+      return;
+    }
+
+    if (!isCollegeEmail(trimmedEmail)) {
+      setError("Use your @acharya.ac.in email");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await resetStudentPassword(trimmedEmail);
+      setError("Password reset email sent. Check your inbox.");
+    } catch (err) {
+      setError(err.message || "Unable to send password reset email");
     } finally {
       setLoading(false);
     }
@@ -205,7 +230,7 @@ export default function StudentLogin() {
 
           {activeTab === "login" && (
             <button
-              onClick={() => setError("Please contact support to reset your password.")}
+              onClick={handleForgotPassword}
               className="w-full text-center text-sm font-bold text-gray-500 hover:text-black transition-colors"
               data-testid="forgot-password"
             >

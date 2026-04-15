@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import API from '@/lib/api';
 import { auth } from "@/lib/firebase";
@@ -90,6 +91,20 @@ export function AuthProvider({ children }) {
     }
   }, [setUser]);
 
+  const resetStudentPassword = useCallback(async (email) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail.endsWith("@acharya.ac.in")) {
+      throw new Error("Use your @acharya.ac.in email address");
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, normalizedEmail);
+      return { message: "Password reset email sent" };
+    } catch (err) {
+      throw new Error("Unable to send password reset email");
+    }
+  }, []);
+
   const staffLogin = useCallback(async (email, password) => {
     const { data } = await API.post('/auth/staff/login', { email, password });
     localStorage.setItem('campusbite_token', data.token);
@@ -119,10 +134,11 @@ export function AuthProvider({ children }) {
     loading, 
     studentLogin, 
     registerStudent,
+    resetStudentPassword,
     staffLogin, 
     adminLogin, 
     logout 
-  }), [user, loading, studentLogin, registerStudent, staffLogin, adminLogin, logout]);
+  }), [user, loading, studentLogin, registerStudent, resetStudentPassword, staffLogin, adminLogin, logout]);
 
   return (
     <AuthContext.Provider value={value}>
