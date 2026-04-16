@@ -1,38 +1,66 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Clock, Check, ChefHat, Package, Bell } from "lucide-react";
+import { ArrowLeft, Clock, Check, Package, Bell } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import API from "@/lib/api";
+import { subscribeToUserOrder } from "@/lib/firestoreOrders";
 
 const STATUSES = [
-  { key: "placed", label: "Order Placed", icon: Package, description: "Your order has been received" },
-  { key: "preparing", label: "Preparing", icon: ChefHat, description: "The kitchen is working on your order" },
-  { key: "ready", label: "Ready!", icon: Check, description: "Collect your order from the counter" },
+  { key: "pending", label: "Order Pending", icon: Package, description: "Your order has been saved in history" },
+  { key: "completed", label: "Completed", icon: Check, description: "This order has been marked as completed" },
 ];
+
+function formatDateTime(value) {
+  return value ? value.toLocaleString() : "Saving...";
+}
 
 export default function StudentOrder() {
   const navigate = useNavigate();
   const { orderId } = useParams();
-  const { user } = useAuth();
+  const { user, currentUser, loading } = useAuth();
   const [order, setOrder] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [orderLoading, setOrderLoading] = useState(true);
+  const activeUser = currentUser || (user?.role === "student" ? user : null);
 
   useEffect(() => {
-    if (!user) { navigate("/student/login"); return; }
-    if (!orderId) return;
-    const fetchOrder = () => {
-      API.get(`/orders/${orderId}`).then(res => { setOrder(res.data); setLoading(false); }).catch(() => setLoading(false));
-    };
-    fetchOrder();
-    const interval = setInterval(fetchOrder, 5000);
-    return () => clearInterval(interval);
-  }, [orderId, user, navigate]);
+    if (loading) {
+      return undefined;
+    }
 
-  if (loading) return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
+    if (!activeUser?.uid || !orderId) {
+      setOrderLoading(false);
+      return undefined;
+    }
+
+    const unsubscribe = subscribeToUserOrder(
+      activeUser.uid,
+      orderId,
+      (data) => {
+        setOrder(data);
+        setOrderLoading(false);
+      },
+      () => setOrderLoading(false),
+    );
+
+    return unsubscribe;
+  }, [activeUser, loading, orderId]);
+
+  if (loading || orderLoading) return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
+
+  if (!activeUser?.uid) {
+    return (
+      <div className="mobile-wrapper flex items-center justify-center min-h-screen p-6 text-center">
+        <div>
+          <p className="font-bold text-gray-500 mb-4">Please login first</p>
+          <button onClick={() => navigate("/student/login")} className="btn-primary">Login</button>
+        </div>
+      </div>
+    );
+  }
+
   if (!order) return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><p className="font-bold text-gray-500">Order not found</p></div>;
 
-  const currentIdx = STATUSES.findIndex(s => s.key === order.status);
-  const getStatusColor = (key) => ({ placed: "bg-yellow-300", preparing: "bg-blue-400", ready: "bg-lime-400" }[key] || "bg-gray-200");
+  const currentIdx = STATUSES.findIndex((status) => status.key === order.status);
+  const getStatusColor = (key) => ({ pending: "bg-yellow-300", completed: "bg-lime-400" }[key] || "bg-gray-200");
 
   return (
     <div className="mobile-wrapper pb-8">
@@ -43,7 +71,7 @@ export default function StudentOrder() {
           </button>
           <div>
             <h1 className="text-xl font-black tracking-tight" style={{ fontFamily: "'Outfit', sans-serif" }}>Order Tracking</h1>
-            <p className="text-xs font-semibold text-gray-500">{order.canteen_name}</p>
+            <p className="text-xs font-semibold text-gray-500">{order.canteenName || "CampusBite Order"}</p>
           </div>
         </div>
       </div>
@@ -53,11 +81,11 @@ export default function StudentOrder() {
           <div className="relative z-10">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-black/60 mb-1">Your Token</p>
             <h2 className="text-7xl font-black tracking-tighter leading-none" style={{ fontFamily: "'IBM Plex Mono', monospace" }} data-testid="token-number">
-              #{order.token_number}
+              #{order.tokenNumber || order.orderId.slice(-4).toUpperCase()}
             </h2>
             <div className="mt-3 inline-flex items-center gap-2">
               <span className="badge-brutal bg-white/80">
-                <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse-dot inline-block" />LIVE
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse-dot inline-block" />SAVED
               </span>
             </div>
           </div>
@@ -71,8 +99,8 @@ export default function StudentOrder() {
             <Clock className="w-6 h-6" strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Estimated Wait</p>
-            <p className="text-2xl font-black" style={{ fontFamily: "'IBM Plex Mono', monospace" }} data-testid="estimated-time">~{order.estimated_time}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Order Time</p>
+            <p className="text-lg font-black" style={{ fontFamily: "'IBM Plex Mono', monospace" }} data-testid="estimated-time">{formatDateTime(order.createdAt)}</p>
           </div>
         </div>
       </div>
@@ -106,34 +134,44 @@ export default function StudentOrder() {
         <div className="card-brutal-sm p-4">
           <h3 className="text-base font-black mb-3" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="order-items-title">Order Details</h3>
           <div className="space-y-2">
-            {order.items.map((item) => (
-              <div key={item.item_id} className="flex justify-between items-center text-sm font-medium">
+            {(order.items || []).map((item, index) => (
+              <div key={`${item.item_id || item.name}-${index}`} className="flex justify-between items-center text-sm font-medium">
                 <span className="text-gray-700">{item.name} x {item.qty}</span>
                 <span className="font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>₹{item.price * item.qty}</span>
               </div>
             ))}
+            {(!order.items || order.items.length === 0) && (
+              <div className="flex justify-between items-center text-sm font-medium">
+                <span className="text-gray-700">{order.itemName} x {order.quantity}</span>
+                <span className="font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>₹{order.totalAmount}</span>
+              </div>
+            )}
             <div className="border-t-2 border-dashed border-black pt-2 flex justify-between items-center mt-2">
               <span className="font-bold">Total</span>
-              <span className="font-black text-lg" style={{ fontFamily: "'IBM Plex Mono', monospace" }} data-testid="order-total">₹{order.total}</span>
+              <span className="font-black text-lg" style={{ fontFamily: "'IBM Plex Mono', monospace" }} data-testid="order-total">₹{order.totalAmount}</span>
+            </div>
+            <div className="border-t-2 border-dashed border-black pt-2 flex justify-between items-center mt-2 text-sm font-medium">
+              <span className="text-gray-700">Transaction ID</span>
+              <span className="font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{order.transactionId || "N/A"}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {order.status !== "ready" && (
+      {order.status !== "completed" && (
         <div className="px-5 mt-4">
           <div className="bg-blue-100 border-2 border-black rounded-lg p-3 flex items-start gap-2">
             <Bell className="w-5 h-5 mt-0.5 flex-shrink-0" strokeWidth={2.5} />
-            <p className="text-sm font-semibold text-gray-800">Status updates automatically. Collect when ready!</p>
+            <p className="text-sm font-semibold text-gray-800">Status updates automatically in your order history.</p>
           </div>
         </div>
       )}
 
-      {order.status === "ready" && (
+      {order.status === "completed" && (
         <div className="px-5 mt-4">
           <div className="bg-lime-200 border-2 border-black rounded-lg p-3 flex items-start gap-2">
             <Check className="w-5 h-5 mt-0.5 flex-shrink-0" strokeWidth={2.5} />
-            <p className="text-sm font-semibold text-gray-800">Your order is ready! Head to {order.canteen_name} counter to collect.</p>
+            <p className="text-sm font-semibold text-gray-800">This order has been completed.</p>
           </div>
         </div>
       )}

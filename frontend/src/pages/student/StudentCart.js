@@ -5,11 +5,12 @@ import { toast } from "sonner";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import API from "@/lib/api";
+import { saveUserOrder } from "@/lib/firestoreOrders";
 
 export default function StudentCart() {
   const QR_EXPIRY_SECONDS = 4 * 60;
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, currentUser, loading } = useAuth();
   const { items, canteenId, canteenName, total, addItem, removeItem, clearCart } = useCart();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
@@ -73,7 +74,19 @@ export default function StudentCart() {
     }
   }, [canteenId, total, refId]);
 
-  if (!user) { navigate("/student/login"); return null; }
+  const activeUser = currentUser || (user?.role === "student" ? user : null);
+
+  useEffect(() => {
+    if (!loading && !activeUser) {
+      navigate("/student/login");
+    }
+  }, [loading, activeUser, navigate]);
+
+  if (loading) {
+    return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
+  }
+
+  if (!activeUser) return null;
 
   const isQrExpired = qrTimeLeft === 0;
   const isValidUtr = /^\d{12}$/.test(utr);
@@ -124,6 +137,17 @@ export default function StudentCart() {
 
   const handlePlaceOrder = async (paymentMethod = "none") => {
     if (items.length === 0 || placing) return;
+    if (loading) {
+      console.log("[Auth] currentUser value during order", activeUser);
+      setError("Please wait, loading user...");
+      return;
+    }
+    if (!activeUser?.uid) {
+      console.log("[Auth] currentUser value during order", activeUser);
+      setError("Login required");
+      return;
+    }
+    console.log("[Auth] currentUser value during order", activeUser);
     
     // Validate UTR if QR payment selected
     if (paymentMethod === "qr") {
@@ -150,21 +174,30 @@ export default function StudentCart() {
     setPlacing(true);
     setError("");
     try {
-      const { data } = await API.post("/orders", {
-        canteen_id: canteenId,
-        items: items.map(i => ({ item_id: i.item_id, name: i.name, qty: i.qty, price: i.price })),
-        payment_method: paymentMethod,
-        utr: paymentMethod === "qr" ? utr.trim() : undefined,
-        submitted_amount: paymentMethod === "qr" ? total : undefined,
-        payment_session_id: paymentMethod === "qr" ? refId : undefined,
-        payment_session_started_at: paymentMethod === "qr" ? qrSessionStartedAt : undefined,
+      const transactionId = paymentMethod === "qr" ? utr.trim() : "N/A";
+      const orderId = await saveUserOrder(activeUser.uid, {
+        itemName: items.map((item) => item.name).join(", "),
+        quantity: items.reduce((sum, item) => sum + item.qty, 0),
+        totalAmount: total,
+        transactionId,
+        status: "pending",
+        canteenName,
+        items: items.map((item) => ({
+          item_id: item.item_id,
+          name: item.name,
+          qty: item.qty,
+          price: item.price,
+          image: item.image || "",
+        })),
+        tokenNumber: refId.slice(-4),
+        paymentMethod: paymentMethod || "none",
       });
       clearCart();
       closeQrModal();
       setUtr("");
-      navigate(`/student/order/${data.order_id}`);
+      navigate(`/student/order/${orderId}`);
     } catch (err) {
-      setError(err.response?.data?.message || err.response?.data?.detail || "Failed to place order");
+      setError(err.message || err.response?.data?.message || err.response?.data?.detail || "Failed to place order");
     } finally {
       setPlacing(false);
     }
@@ -254,7 +287,7 @@ export default function StudentCart() {
               Pay via QR/UPI
             </button>
           )}
-          <button onClick={() => handlePlaceOrder("none")} disabled={placing} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-4 text-center font-black text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50" data-testid="place-order-btn" style={{ fontFamily: "'Outfit', sans-serif" }}>
+          <button onClick={() => handlePlaceOrder("none")} disabled={placing || loading} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-4 text-center font-black text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50" data-testid="place-order-btn" style={{ fontFamily: "'Outfit', sans-serif" }}>
             {placing ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             {placing ? "Placing..." : `Place Order — ₹${total}`}
           </button>
@@ -309,7 +342,7 @@ export default function StudentCart() {
               💡 After payment, enter the UTR and click "I have paid" below
             </p>
             {isQrExpired && <p className="text-xs text-red-500">QR expired. Please refresh</p>}
-            <button onClick={() => handlePlaceOrder("qr")} disabled={placing || isQrExpired || !isValidUtr} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-3 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50">
+            <button onClick={() => handlePlaceOrder("qr")} disabled={placing || loading || isQrExpired || !isValidUtr} className="w-full bg-lime-400 border-[3px] border-black rounded-xl p-3 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal flex items-center justify-center gap-2 disabled:opacity-50">
               {placing ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" strokeWidth={2.5} />}
               {placing ? "Verifying..." : "I have paid"}
             </button>

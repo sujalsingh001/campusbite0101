@@ -10,25 +10,33 @@ import API from '@/lib/api';
 import { auth } from "@/lib/firebase";
 
 const AuthContext = createContext(null);
+let currentUser = null;
+
+function mapFirebaseUser(firebaseUser) {
+  if (!firebaseUser) return null;
+  return {
+    ...firebaseUser,
+    email: firebaseUser.email,
+    role: "student",
+  };
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [resolvedCurrentUser, setResolvedCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem('campusbite_token');
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      const normalizedUser = mapFirebaseUser(firebaseUser);
+      currentUser = normalizedUser;
+      setResolvedCurrentUser(normalizedUser);
+      console.log("[Auth] auth state changed", normalizedUser);
+
       if (localStorage.getItem('campusbite_token')) return;
 
-      if (firebaseUser) {
-        setUser({
-          ...firebaseUser,
-          email: firebaseUser.email,
-          role: "student",
-        });
-      } else {
-        setUser(null);
-      }
+      setUser(normalizedUser);
       setLoading(false);
     });
 
@@ -37,21 +45,17 @@ export function AuthProvider({ children }) {
         .then(res => setUser(res.data))
         .catch(() => {
           localStorage.removeItem('campusbite_token');
-          if (auth.currentUser) {
-            setUser({
-              ...auth.currentUser,
-              email: auth.currentUser.email,
-              role: "student",
-            });
-          } else {
-            setUser(null);
-          }
+          setUser(currentUser);
         })
         .finally(() => setLoading(false));
     }
 
     return unsubscribe;
   }, []); // Empty deps is correct - only runs once on mount
+
+  useEffect(() => {
+    console.log("[Auth] currentUser value", resolvedCurrentUser);
+  }, [resolvedCurrentUser]);
 
   const studentLogin = useCallback(async (email, password) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -61,16 +65,15 @@ export function AuthProvider({ children }) {
 
     try {
       const res = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-      setUser({
-        ...res.user,
-        email: res.user.email,
-        role: "student",
-      });
+      const normalizedUser = mapFirebaseUser(res.user);
+      currentUser = normalizedUser;
+      setResolvedCurrentUser(normalizedUser);
+      setUser(normalizedUser);
       return res.user;
     } catch (err) {
       throw new Error("Email or password is incorrect");
     }
-  }, [setUser]);
+  }, [setUser, setResolvedCurrentUser]);
 
   const registerStudent = useCallback(async (email, password) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -80,16 +83,15 @@ export function AuthProvider({ children }) {
 
     try {
       const res = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-      setUser({
-        ...res.user,
-        email: res.user.email,
-        role: "student",
-      });
+      const normalizedUser = mapFirebaseUser(res.user);
+      currentUser = normalizedUser;
+      setResolvedCurrentUser(normalizedUser);
+      setUser(normalizedUser);
       return res.user;
     } catch (err) {
       throw new Error("User already exists. Please sign in");
     }
-  }, [setUser]);
+  }, [setUser, setResolvedCurrentUser]);
 
   const resetStudentPassword = useCallback(async (email) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -126,11 +128,14 @@ export function AuthProvider({ children }) {
     } catch (err) {
       // Ignore Firebase sign-out errors for backend-only sessions.
     }
+    currentUser = null;
+    setResolvedCurrentUser(null);
     setUser(null);
-  }, [setUser]);
+  }, [setUser, setResolvedCurrentUser]);
 
   const value = useMemo(() => ({ 
     user, 
+    currentUser: resolvedCurrentUser,
     loading, 
     studentLogin, 
     registerStudent,
@@ -138,7 +143,7 @@ export function AuthProvider({ children }) {
     staffLogin, 
     adminLogin, 
     logout 
-  }), [user, loading, studentLogin, registerStudent, resetStudentPassword, staffLogin, adminLogin, logout]);
+  }), [user, resolvedCurrentUser, loading, studentLogin, registerStudent, resetStudentPassword, staffLogin, adminLogin, logout]);
 
   return (
     <AuthContext.Provider value={value}>
