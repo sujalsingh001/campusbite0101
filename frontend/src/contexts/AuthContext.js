@@ -39,6 +39,18 @@ function normalizePhoneNumber(phoneNumber) {
   return `+91${rawValue}`;
 }
 
+function setupRecaptcha(authInstance, containerId = "recaptcha-container") {
+  if (typeof window !== "undefined" && window.recaptchaVerifier) {
+    window.recaptchaVerifier.clear();
+  }
+
+  window.recaptchaVerifier = new RecaptchaVerifier(authInstance, containerId, {
+    size: "normal",
+  });
+
+  return window.recaptchaVerifier;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [resolvedCurrentUser, setResolvedCurrentUser] = useState(null);
@@ -160,7 +172,7 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const sendOTP = useCallback(async (phoneNumber, recaptchaContainerId = "student-phone-recaptcha") => {
+  const sendOTP = useCallback(async (phoneNumber, recaptchaContainerId = "recaptcha-container") => {
     if (!firebaseUserRef.current?.uid) {
       throw new Error("Please wait, loading user...");
     }
@@ -175,10 +187,7 @@ export function AuthProvider({ children }) {
         recaptchaVerifierRef.current = null;
       }
 
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerId, {
-        size: "invisible",
-      });
-
+      recaptchaVerifierRef.current = setupRecaptcha(auth, recaptchaContainerId);
       await recaptchaVerifierRef.current.render();
 
       confirmationResultRef.current = await linkWithPhoneNumber(

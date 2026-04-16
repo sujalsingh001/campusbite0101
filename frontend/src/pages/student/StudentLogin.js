@@ -357,7 +357,7 @@ export default function StudentLogin() {
           )}
         </div>
 
-        <div id="student-phone-recaptcha" className="hidden" />
+        <div id="recaptcha-container"></div>
 
         <div className="flex items-center gap-3 justify-center pt-4">
           <div className="w-3 h-3 bg-lime-400 border-2 border-[#2B4798] rounded-full" />
