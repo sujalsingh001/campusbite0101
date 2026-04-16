@@ -175,12 +175,15 @@ export default function StudentCart() {
     setError("");
     try {
       const transactionId = paymentMethod === "qr" ? utr.trim() : "N/A";
+      const tokenNumber = (refId || Date.now().toString()).slice(-4).toUpperCase();
       const orderId = await saveUserOrder(activeUser.uid, {
+        userEmail: activeUser.email || "",
         itemName: items.map((item) => item.name).join(", "),
         quantity: items.reduce((sum, item) => sum + item.qty, 0),
         totalAmount: total,
         transactionId,
         status: "pending",
+        canteenId,
         canteenName,
         items: items.map((item) => ({
           item_id: item.item_id,
@@ -189,7 +192,7 @@ export default function StudentCart() {
           price: item.price,
           image: item.image || "",
         })),
-        tokenNumber: refId.slice(-4),
+        tokenNumber,
         paymentMethod: paymentMethod || "none",
       });
       clearCart();
