@@ -32,22 +32,11 @@ function normalizePhoneNumber(phoneNumber) {
     throw new Error("Phone number is required");
   }
 
-  if (rawValue.startsWith("+")) {
-    if (!/^\+[1-9]\d{9,14}$/.test(rawValue)) {
-      throw new Error("Enter a valid phone number");
-    }
-    return rawValue;
+  if (!/^\d{10}$/.test(rawValue)) {
+    throw new Error("Enter a valid 10-digit phone number");
   }
 
-  const digits = rawValue.replace(/\D/g, "");
-  if (digits.length === 10) {
-    return `+91${digits}`;
-  }
-  if (digits.length >= 11 && digits.length <= 15) {
-    return `+${digits}`;
-  }
-
-  throw new Error("Enter a valid phone number");
+  return `+91${rawValue}`;
 }
 
 export function AuthProvider({ children }) {
@@ -179,11 +168,18 @@ export function AuthProvider({ children }) {
     const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
 
     try {
-      if (!recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerId, {
-          size: "invisible",
-        });
+      confirmationResultRef.current = null;
+
+      if (recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current.clear();
+        recaptchaVerifierRef.current = null;
       }
+
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerId, {
+        size: "invisible",
+      });
+
+      await recaptchaVerifierRef.current.render();
 
       confirmationResultRef.current = await linkWithPhoneNumber(
         firebaseUserRef.current,
@@ -194,19 +190,24 @@ export function AuthProvider({ children }) {
 
       return { phoneNumber: normalizedPhoneNumber };
     } catch (err) {
+      console.error("Firebase phone OTP send failed:", err);
+
       if (recaptchaVerifierRef.current) {
         recaptchaVerifierRef.current.clear();
         recaptchaVerifierRef.current = null;
       }
 
       if (err?.code === "auth/invalid-phone-number") {
-        throw new Error("Enter a valid phone number");
+        throw new Error("Enter a valid 10-digit phone number");
       }
       if (err?.code === "auth/too-many-requests") {
         throw new Error("Too many OTP requests. Please try again later");
       }
       if (err?.code === "auth/network-request-failed") {
         throw new Error("Network issue while sending OTP");
+      }
+      if (err?.code === "auth/captcha-check-failed") {
+        throw new Error("Unable to verify reCAPTCHA. Please try again");
       }
       if (err?.code === "auth/provider-already-linked") {
         throw new Error("Phone number is already verified");
