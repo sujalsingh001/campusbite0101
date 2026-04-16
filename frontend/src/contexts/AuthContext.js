@@ -1,43 +1,106 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  RecaptchaVerifier,
+  linkWithPhoneNumber,
 } from "firebase/auth";
+import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import API from '@/lib/api';
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 
 const AuthContext = createContext(null);
 let currentUser = null;
 
-function mapFirebaseUser(firebaseUser) {
+function mapFirebaseUser(firebaseUser, profileData = {}) {
   if (!firebaseUser) return null;
   return {
     ...firebaseUser,
     email: firebaseUser.email,
+    phoneNumber: profileData.phoneNumber || firebaseUser.phoneNumber || "",
+    phoneVerified: Boolean(profileData.phoneVerified || firebaseUser.phoneNumber),
     role: "student",
   };
+}
+
+function normalizePhoneNumber(phoneNumber) {
+  const rawValue = (phoneNumber || "").trim();
+  if (!rawValue) {
+    throw new Error("Phone number is required");
+  }
+
+  if (rawValue.startsWith("+")) {
+    if (!/^\+[1-9]\d{9,14}$/.test(rawValue)) {
+      throw new Error("Enter a valid phone number");
+    }
+    return rawValue;
+  }
+
+  const digits = rawValue.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `+91${digits}`;
+  }
+  if (digits.length >= 11 && digits.length <= 15) {
+    return `+${digits}`;
+  }
+
+  throw new Error("Enter a valid phone number");
 }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [resolvedCurrentUser, setResolvedCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const firebaseUserRef = useRef(null);
+  const profileUnsubscribeRef = useRef(null);
+  const recaptchaVerifierRef = useRef(null);
+  const confirmationResultRef = useRef(null);
+  const pendingPhoneNumberRef = useRef("");
+  const otpBypassEnabled = process.env.REACT_APP_FIREBASE_TEST_OTP_BYPASS === "true";
+
+  const applyFirebaseUser = useCallback((firebaseUser, profileData = {}) => {
+    const normalizedUser = mapFirebaseUser(firebaseUser, profileData);
+    currentUser = normalizedUser;
+    setResolvedCurrentUser(normalizedUser);
+    console.log("[Auth] auth state changed", normalizedUser);
+
+    if (!localStorage.getItem('campusbite_token')) {
+      setUser(normalizedUser);
+    }
+
+    return normalizedUser;
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('campusbite_token');
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      const normalizedUser = mapFirebaseUser(firebaseUser);
-      currentUser = normalizedUser;
-      setResolvedCurrentUser(normalizedUser);
-      console.log("[Auth] auth state changed", normalizedUser);
+      firebaseUserRef.current = firebaseUser;
 
-      if (localStorage.getItem('campusbite_token')) return;
+      if (profileUnsubscribeRef.current) {
+        profileUnsubscribeRef.current();
+        profileUnsubscribeRef.current = null;
+      }
 
-      setUser(normalizedUser);
-      setLoading(false);
+      if (!firebaseUser) {
+        applyFirebaseUser(null);
+        setLoading(false);
+        return;
+      }
+
+      profileUnsubscribeRef.current = onSnapshot(
+        doc(db, "users", firebaseUser.uid),
+        (snapshot) => {
+          applyFirebaseUser(firebaseUser, snapshot.exists() ? snapshot.data() : {});
+          setLoading(false);
+        },
+        () => {
+          applyFirebaseUser(firebaseUser);
+          setLoading(false);
+        },
+      );
     });
 
     if (token) {
@@ -50,8 +113,13 @@ export function AuthProvider({ children }) {
         .finally(() => setLoading(false));
     }
 
-    return unsubscribe;
-  }, []); // Empty deps is correct - only runs once on mount
+    return () => {
+      unsubscribe();
+      if (profileUnsubscribeRef.current) {
+        profileUnsubscribeRef.current();
+      }
+    };
+  }, [applyFirebaseUser]); // Empty deps is correct - only runs once on mount
 
   useEffect(() => {
     console.log("[Auth] currentUser value", resolvedCurrentUser);
@@ -65,15 +133,13 @@ export function AuthProvider({ children }) {
 
     try {
       const res = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-      const normalizedUser = mapFirebaseUser(res.user);
-      currentUser = normalizedUser;
-      setResolvedCurrentUser(normalizedUser);
-      setUser(normalizedUser);
+      firebaseUserRef.current = res.user;
+      applyFirebaseUser(res.user);
       return res.user;
     } catch (err) {
       throw new Error("Email or password is incorrect");
     }
-  }, [setUser, setResolvedCurrentUser]);
+  }, [applyFirebaseUser]);
 
   const registerStudent = useCallback(async (email, password) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -83,15 +149,13 @@ export function AuthProvider({ children }) {
 
     try {
       const res = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-      const normalizedUser = mapFirebaseUser(res.user);
-      currentUser = normalizedUser;
-      setResolvedCurrentUser(normalizedUser);
-      setUser(normalizedUser);
+      firebaseUserRef.current = res.user;
+      applyFirebaseUser(res.user);
       return res.user;
     } catch (err) {
       throw new Error("User already exists. Please sign in");
     }
-  }, [setUser, setResolvedCurrentUser]);
+  }, [applyFirebaseUser]);
 
   const resetStudentPassword = useCallback(async (email) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -106,6 +170,117 @@ export function AuthProvider({ children }) {
       throw new Error("Unable to send password reset email");
     }
   }, []);
+
+  const sendOTP = useCallback(async (phoneNumber, recaptchaContainerId = "student-phone-recaptcha") => {
+    if (!firebaseUserRef.current?.uid) {
+      throw new Error("Please wait, loading user...");
+    }
+
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+
+    try {
+      if (!recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerId, {
+          size: "invisible",
+        });
+      }
+
+      confirmationResultRef.current = await linkWithPhoneNumber(
+        firebaseUserRef.current,
+        normalizedPhoneNumber,
+        recaptchaVerifierRef.current,
+      );
+      pendingPhoneNumberRef.current = normalizedPhoneNumber;
+
+      return { phoneNumber: normalizedPhoneNumber };
+    } catch (err) {
+      if (recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current.clear();
+        recaptchaVerifierRef.current = null;
+      }
+
+      if (err?.code === "auth/invalid-phone-number") {
+        throw new Error("Enter a valid phone number");
+      }
+      if (err?.code === "auth/too-many-requests") {
+        throw new Error("Too many OTP requests. Please try again later");
+      }
+      if (err?.code === "auth/network-request-failed") {
+        throw new Error("Network issue while sending OTP");
+      }
+      if (err?.code === "auth/provider-already-linked") {
+        throw new Error("Phone number is already verified");
+      }
+      throw new Error("Unable to send OTP right now");
+    }
+  }, []);
+
+  const verifyOTP = useCallback(async (code) => {
+    const normalizedCode = (code || "").trim();
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      throw new Error("Enter a valid 6-digit OTP");
+    }
+
+    if (!firebaseUserRef.current?.uid) {
+      throw new Error("Please wait, loading user...");
+    }
+
+    try {
+      if (otpBypassEnabled && normalizedCode === "123456" && pendingPhoneNumberRef.current) {
+        await setDoc(doc(db, "users", firebaseUserRef.current.uid), {
+          email: firebaseUserRef.current.email || "",
+          phoneNumber: pendingPhoneNumberRef.current,
+          phoneVerified: true,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+
+        applyFirebaseUser(firebaseUserRef.current, {
+          phoneNumber: pendingPhoneNumberRef.current,
+          phoneVerified: true,
+        });
+
+        return {
+          phoneNumber: pendingPhoneNumberRef.current,
+          phoneVerified: true,
+        };
+      }
+
+      if (!confirmationResultRef.current || !pendingPhoneNumberRef.current) {
+        throw new Error("Send OTP first");
+      }
+
+      const result = await confirmationResultRef.current.confirm(normalizedCode);
+      firebaseUserRef.current = result.user || firebaseUserRef.current;
+
+      await setDoc(doc(db, "users", firebaseUserRef.current.uid), {
+        email: firebaseUserRef.current.email || "",
+        phoneNumber: pendingPhoneNumberRef.current,
+        phoneVerified: true,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
+      applyFirebaseUser(firebaseUserRef.current, {
+        phoneNumber: pendingPhoneNumberRef.current,
+        phoneVerified: true,
+      });
+
+      return {
+        phoneNumber: pendingPhoneNumberRef.current,
+        phoneVerified: true,
+      };
+    } catch (err) {
+      if (err?.code === "auth/invalid-verification-code") {
+        throw new Error("OTP is incorrect");
+      }
+      if (err?.code === "auth/code-expired") {
+        throw new Error("OTP has expired. Please resend it");
+      }
+      if (err?.code === "auth/network-request-failed") {
+        throw new Error("Network issue while verifying OTP");
+      }
+      throw new Error(err.message || "Unable to verify OTP");
+    }
+  }, [applyFirebaseUser, otpBypassEnabled]);
 
   const staffLogin = useCallback(async (email, password) => {
     const { data } = await API.post('/auth/staff/login', { email, password });
@@ -129,6 +304,13 @@ export function AuthProvider({ children }) {
       // Ignore Firebase sign-out errors for backend-only sessions.
     }
     currentUser = null;
+    firebaseUserRef.current = null;
+    confirmationResultRef.current = null;
+    pendingPhoneNumberRef.current = "";
+    if (recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current.clear();
+      recaptchaVerifierRef.current = null;
+    }
     setResolvedCurrentUser(null);
     setUser(null);
   }, [setUser, setResolvedCurrentUser]);
@@ -139,11 +321,13 @@ export function AuthProvider({ children }) {
     loading, 
     studentLogin, 
     registerStudent,
+    sendOTP,
+    verifyOTP,
     resetStudentPassword,
     staffLogin, 
     adminLogin, 
     logout 
-  }), [user, resolvedCurrentUser, loading, studentLogin, registerStudent, resetStudentPassword, staffLogin, adminLogin, logout]);
+  }), [user, resolvedCurrentUser, loading, studentLogin, registerStudent, sendOTP, verifyOTP, resetStudentPassword, staffLogin, adminLogin, logout]);
 
   return (
     <AuthContext.Provider value={value}>

@@ -47,6 +47,7 @@ export async function saveUserOrder(uid, order) {
     orderId,
     userId: uid,
     userEmail: order.userEmail || "",
+    phoneNumber: order.phoneNumber || "",
     itemName: order.itemName || "",
     quantity: order.quantity || 0,
     totalAmount: order.totalAmount || 0,
@@ -64,6 +65,8 @@ export async function saveUserOrder(uid, order) {
   const batch = writeBatch(db);
   batch.set(userDoc(uid), {
     email: order.userEmail || "",
+    phoneNumber: order.phoneNumber || "",
+    phoneVerified: Boolean(order.phoneNumber),
     updatedAt: timestamp,
   }, { merge: true });
   batch.set(userOrderRef, orderDoc);

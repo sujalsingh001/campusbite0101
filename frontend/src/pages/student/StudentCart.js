@@ -178,6 +178,7 @@ export default function StudentCart() {
       const tokenNumber = (refId || Date.now().toString()).slice(-4).toUpperCase();
       const orderId = await saveUserOrder(activeUser.uid, {
         userEmail: activeUser.email || "",
+        phoneNumber: activeUser.phoneNumber || "",
         itemName: items.map((item) => item.name).join(", "),
         quantity: items.reduce((sum, item) => sum + item.qty, 0),
         totalAmount: total,
