@@ -77,9 +77,9 @@ export default function StudentMenu() {
               </button>
             </div>
           </div>
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" strokeWidth={2.5} />
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search for food..." className="input-brutal pl-12" data-testid="search-input" />
+          <div className="relative search-container">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 search-icon" strokeWidth={2.5} />
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search for food..." className="input-brutal pl-12 search-input" data-testid="search-input" />
           </div>
         </div>
         <ScrollArea className="w-full">
@@ -97,8 +97,8 @@ export default function StudentMenu() {
 
         {/* Category Filter */}
         {categories.length > 1 && (
-          <ScrollArea className="w-full mt-2">
-            <div className="flex gap-2 px-5">
+          <ScrollArea className="w-full mt-2 filter-container">
+            <div className="flex gap-2 px-5 pb-3 filter-buttons">
               {categories.map(cat => (
                 <button key={cat} onClick={() => setSelectedCategory(cat)}
                   className={`flex-shrink-0 px-3 py-1.5 rounded-full border-2 border-black font-medium text-xs transition-all ${selectedCategory === cat ? "bg-lime-400 text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.2)]"}`}>

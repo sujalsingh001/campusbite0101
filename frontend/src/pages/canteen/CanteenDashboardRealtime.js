@@ -27,7 +27,7 @@ function formatTime(value) {
 }
 
 function getStudentLabel(order) {
-  return order.userEmail || order.userId || "Student";
+  return order.studentAuid || order.userEmail || order.userId || "Student";
 }
 
 export default function CanteenDashboardRealtime() {

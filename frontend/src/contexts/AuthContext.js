@@ -8,7 +8,7 @@ import {
   RecaptchaVerifier,
   linkWithPhoneNumber,
 } from "firebase/auth";
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import API from '@/lib/api';
 import { auth, db } from "@/lib/firebase";
 
@@ -20,6 +20,7 @@ function mapFirebaseUser(firebaseUser, profileData = {}) {
   return {
     ...firebaseUser,
     email: firebaseUser.email,
+    auid: profileData.auid || firebaseUser.uid || "",
     phoneNumber: profileData.phoneNumber || firebaseUser.phoneNumber || "",
     phoneVerified: Boolean(profileData.phoneVerified || firebaseUser.phoneNumber),
     role: "student",
@@ -61,6 +62,35 @@ export function AuthProvider({ children }) {
   const confirmationResultRef = useRef(null);
   const pendingPhoneNumberRef = useRef("");
   const otpBypassEnabled = process.env.REACT_APP_FIREBASE_TEST_OTP_BYPASS === "true";
+
+  const syncBackendStudentSession = useCallback(async ({ email, password, auid, phone = "" }) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const loginPayload = { email: normalizedEmail, password };
+
+    try {
+      const loginResponse = await API.post("/auth/student/login", loginPayload);
+      localStorage.setItem("campusbite_token", loginResponse.data.token);
+      setUser(loginResponse.data.user);
+      return loginResponse.data;
+    } catch (loginError) {
+      if (loginError?.response?.status !== 404) {
+        throw loginError;
+      }
+
+      const fallbackAuid = (auid || firebaseUserRef.current?.uid || normalizedEmail.split("@")[0] || "").trim().toUpperCase();
+      await API.post("/auth/register", {
+        email: normalizedEmail,
+        password,
+        auid: fallbackAuid || auid || normalizedEmail.split("@")[0].toUpperCase(),
+        phone,
+      });
+
+      const loginResponse = await API.post("/auth/student/login", loginPayload);
+      localStorage.setItem("campusbite_token", loginResponse.data.token);
+      setUser(loginResponse.data.user);
+      return loginResponse.data;
+    }
+  }, [setUser]);
 
   const applyFirebaseUser = useCallback((firebaseUser, profileData = {}) => {
     const normalizedUser = mapFirebaseUser(firebaseUser, profileData);
@@ -132,31 +162,82 @@ export function AuthProvider({ children }) {
       throw new Error("Use your @acharya.ac.in email address");
     }
 
+    let res;
     try {
-      const res = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-      firebaseUserRef.current = res.user;
-      applyFirebaseUser(res.user);
-      return res.user;
+      res = await signInWithEmailAndPassword(auth, normalizedEmail, password);
     } catch (err) {
       throw new Error("Email or password is incorrect");
     }
-  }, [applyFirebaseUser]);
 
-  const registerStudent = useCallback(async (email, password) => {
+    firebaseUserRef.current = res.user;
+    let profileData = {};
+    try {
+      const profileSnapshot = await getDoc(doc(db, "users", res.user.uid));
+      profileData = profileSnapshot.exists() ? profileSnapshot.data() : {};
+    } catch (profileError) {
+      profileData = {};
+    }
+
+    applyFirebaseUser(res.user, profileData);
+
+    try {
+      await syncBackendStudentSession({
+        email: normalizedEmail,
+        password,
+        auid: profileData.auid || res.user.uid,
+        phone: profileData.phoneNumber || res.user.phoneNumber || "",
+      });
+    } catch (syncError) {
+      throw new Error(syncError?.response?.data?.detail || syncError?.message || "Unable to sync student session");
+    }
+
+    return res.user;
+  }, [applyFirebaseUser, syncBackendStudentSession]);
+
+  const registerStudent = useCallback(async (email, password, details = {}) => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail.endsWith("@acharya.ac.in")) {
       throw new Error("Use your @acharya.ac.in email address");
     }
 
+    let res;
     try {
-      const res = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-      firebaseUserRef.current = res.user;
-      applyFirebaseUser(res.user);
-      return res.user;
+      res = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
     } catch (err) {
       throw new Error("User already exists. Please sign in");
     }
-  }, [applyFirebaseUser]);
+
+    firebaseUserRef.current = res.user;
+    const normalizedAuid = (details.auid || "").trim().toUpperCase();
+    const normalizedPhone = (details.phone || "").trim();
+
+    await setDoc(doc(db, "users", res.user.uid), {
+      email: normalizedEmail,
+      auid: normalizedAuid || res.user.uid,
+      phoneNumber: normalizedPhone,
+      phoneVerified: false,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+
+    applyFirebaseUser(res.user, {
+      auid: normalizedAuid || res.user.uid,
+      phoneNumber: normalizedPhone,
+      phoneVerified: false,
+    });
+
+    try {
+      await syncBackendStudentSession({
+        email: normalizedEmail,
+        password,
+        auid: normalizedAuid || res.user.uid,
+        phone: normalizedPhone,
+      });
+    } catch (syncError) {
+      throw new Error(syncError?.response?.data?.detail || syncError?.message || "Unable to sync student session");
+    }
+
+    return res.user;
+  }, [applyFirebaseUser, syncBackendStudentSession]);
 
   const resetStudentPassword = useCallback(async (email) => {
     const normalizedEmail = email.trim().toLowerCase();

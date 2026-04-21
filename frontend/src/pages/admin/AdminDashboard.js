@@ -229,14 +229,29 @@ function AddCanteenDialog({ onAdd }) {
 
 function AddMenuItemDialog({ canteens, onAdd }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ item_id: "", canteen_id: "", name: "", price: "", image: "", category: "", veg: true });
+  const [form, setForm] = useState({ item_id: "", canteen_id: "", name: "", price: "", category: "", veg: true });
+  const [imageFile, setImageFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const handleImageUpload = (e) => {
+    setImageFile(e.target.files[0]);
+  };
   const handleSubmit = async () => {
     setLoading(true);
     try { 
-      await API.post("/admin/menu-items", { ...form, price: parseInt(form.price) || 0 }); 
+      const formData = new FormData();
+      formData.append("item_id", form.item_id);
+      formData.append("canteen_id", form.canteen_id);
+      formData.append("name", form.name);
+      formData.append("price", form.price);
+      formData.append("category", form.category);
+      formData.append("veg", form.veg);
+      formData.append("image", imageFile);
+      await API.post("/admin/add-item", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      }); 
       setOpen(false); 
-      setForm({ item_id: "", canteen_id: "", name: "", price: "", image: "", category: "", veg: true }); 
+      setForm({ item_id: "", canteen_id: "", name: "", price: "", category: "", veg: true }); 
+      setImageFile(null);
       onAdd(); 
       toast.success("Menu item added successfully");
     } catch (e) { 
@@ -261,7 +276,7 @@ function AddMenuItemDialog({ canteens, onAdd }) {
           </select>
           <input placeholder="Item Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400" data-testid="new-item-name" />
           <input placeholder="Price" type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400" data-testid="new-item-price" />
-          <input placeholder="Image URL" value={form.image} onChange={e => setForm({ ...form, image: e.target.value })} className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400" data-testid="new-item-image" />
+          <input type="file" accept="image/*" onChange={handleImageUpload} className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400" data-testid="new-item-image" />
           <input placeholder="Category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="input-brutal bg-gray-700 border-gray-500 text-white placeholder:text-gray-400" data-testid="new-item-category" />
           <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.veg} onChange={e => setForm({ ...form, veg: e.target.checked })} className="w-5 h-5" /> Vegetarian</label>
           <button onClick={handleSubmit} disabled={loading} className="w-full btn-yellow flex items-center justify-center gap-2" data-testid="submit-menu-item-btn">
