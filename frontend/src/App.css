@@ -134,30 +134,6 @@ a[href="https://app.emergent.sh/?utm_source=emergent-badge"],
   color: #6B7280 !important;
 }
 
-.search-container {
-  position: relative;
-}
-
-.search-input {
-  padding-left: 40px !important;
-}
-
-.search-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.filter-container {
-  margin-bottom: 12px;
-}
-
-.filter-buttons {
-  padding-bottom: 10px;
-}
-
 .badge-brutal {
   display: inline-flex;
   align-items: center;

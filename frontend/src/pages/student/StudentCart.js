@@ -175,35 +175,26 @@ export default function StudentCart() {
     setError("");
     try {
       const transactionId = paymentMethod === "qr" ? utr.trim() : "N/A";
-      const { data } = await API.post("/orders", {
-        canteen_id: canteenId,
-        items: items.map((item) => ({
-          item_id: item.item_id,
-          name: item.name,
-          qty: item.qty,
-          price: item.price,
-        })),
-        payment_method: paymentMethod || "none",
-        submitted_amount: total,
-        ...(paymentMethod === "qr" ? {
-          utr: transactionId,
-          payment_session_id: refId,
-          payment_session_started_at: qrSessionStartedAt,
-        } : {}),
-      });
-
-      const backendOrder = data?.order || {};
+      const tokenNumber = (refId || Date.now().toString()).slice(-4).toUpperCase();
       const orderId = await saveUserOrder(activeUser.uid, {
-        ...backendOrder,
         userEmail: activeUser.email || "",
         phoneNumber: activeUser.phoneNumber || "",
         itemName: items.map((item) => item.name).join(", "),
         quantity: items.reduce((sum, item) => sum + item.qty, 0),
         totalAmount: total,
         transactionId,
+        status: "pending",
         canteenId,
         canteenName,
-        paymentMethod: backendOrder.payment_method || paymentMethod || "none",
+        items: items.map((item) => ({
+          item_id: item.item_id,
+          name: item.name,
+          qty: item.qty,
+          price: item.price,
+          image: item.image || "",
+        })),
+        tokenNumber,
+        paymentMethod: paymentMethod || "none",
       });
       clearCart();
       closeQrModal();

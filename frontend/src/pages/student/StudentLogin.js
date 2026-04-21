@@ -101,7 +101,7 @@ export default function StudentLogin() {
 
     setLoading(true);
     try {
-      await registerStudent(trimmedEmail, password, { auid, phone });
+      await registerStudent(trimmedEmail, password);
       if (phone.trim()) {
         setLoading(false);
         setSendingOtp(true);
