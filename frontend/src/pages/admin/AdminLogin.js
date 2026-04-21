@@ -6,8 +6,8 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function AdminLogin() {
   const navigate = useNavigate();
   const { adminLogin } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("sujalsinghrathore52@gmail.com");
+  const [password, setPassword] = useState("Sujal@2004");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

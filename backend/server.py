@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from pathlib import Path
@@ -32,6 +32,10 @@ JWT_ALGORITHM = "HS256"
 TEMP_DISABLE_STUDENT_LOGIN = os.environ.get('TEMP_DISABLE_STUDENT_LOGIN', 'true').lower() in {'1', 'true', 'yes', 'on'}
 PAYMENT_SESSION_WINDOW_SECONDS = 4 * 60
 MAX_PAYMENT_ATTEMPTS = 3
+ADMIN_EMAIL = "sujalsinghrathore52@gmail.com"
+ADMIN_PASSWORD = "Sujal@2004"
+RECOVERY_ADMIN_EMAIL = ADMIN_EMAIL
+RECOVERY_ADMIN_PASSWORD = ADMIN_PASSWORD
 
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
@@ -287,13 +291,11 @@ async def seed_data():
         await db.menu_items.insert_many(items)
         logger.info("Seeded menu items")
 
-    admin_email = os.environ.get('ADMIN_EMAIL', 'admin@campusbite.com')
-    admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
     await db.users.update_one(
-        {"email": admin_email, "role": "admin"},
+        {"email": ADMIN_EMAIL, "role": "admin"},
         {"$set": {
-            "email": admin_email,
-            "password_hash": hash_password(admin_password),
+            "email": ADMIN_EMAIL,
+            "password_hash": hash_password(ADMIN_PASSWORD),
             "name": "Super Admin",
             "role": "admin"
         }, "$setOnInsert": {
@@ -303,13 +305,11 @@ async def seed_data():
     )
     logger.info("Seeded admin")
 
-    recovery_admin_email = os.environ.get('RECOVERY_ADMIN_EMAIL', 'admin@campusbite.com')
-    recovery_admin_password = os.environ.get('RECOVERY_ADMIN_PASSWORD', 'admin123')
     await db.users.update_one(
-        {"email": recovery_admin_email, "role": "admin"},
+        {"email": RECOVERY_ADMIN_EMAIL, "role": "admin"},
         {"$set": {
-            "email": recovery_admin_email,
-            "password_hash": hash_password(recovery_admin_password),
+            "email": RECOVERY_ADMIN_EMAIL,
+            "password_hash": hash_password(RECOVERY_ADMIN_PASSWORD),
             "name": "Super Admin",
             "role": "admin"
         }, "$setOnInsert": {
@@ -476,8 +476,10 @@ async def staff_login(req: StaffLoginReq):
 @api_router.post("/auth/admin/login")
 async def admin_login(req: StaffLoginReq):
     email = req.email.strip().lower()
+    if email != ADMIN_EMAIL or req.password != ADMIN_PASSWORD:
+        raise HTTPException(401, "Invalid email or password")
     user = await db.users.find_one({"email": email, "role": "admin"})
-    if not user or not verify_password(req.password, user["password_hash"]):
+    if not user:
         raise HTTPException(401, "Invalid email or password")
     user_id = str(user["_id"])
     token = create_token(user_id, "admin")
@@ -1032,13 +1034,43 @@ async def admin_get_menu_items(request: Request):
     return await db.menu_items.find({}, {"_id": 0}).to_list(200)
 
 @api_router.post("/admin/menu-items")
-async def admin_create_menu_item(req: CreateMenuItemReq, request: Request):
+@api_router.post("/admin/add-item")
+async def admin_create_menu_item(
+    request: Request,
+    item_id: str = Form(...),
+    canteen_id: str = Form(...),
+    name: str = Form(...),
+    price: float = Form(...),
+    category: str = Form("general"),
+    veg: bool = Form(True),
+    image: UploadFile = File(...),
+):
     payload = await get_current_user(request)
     if payload["role"] != "admin":
         raise HTTPException(403, "Forbidden")
-    if await db.menu_items.find_one({"item_id": req.item_id}):
+    if await db.menu_items.find_one({"item_id": item_id}):
         raise HTTPException(400, "Item ID already exists")
-    doc = {**req.model_dump(), "available": True}
+    file_name = Path(image.filename or "upload.png").name
+    file_path = UPLOADS_DIR / file_name
+    file_bytes = await image.read()
+    if not file_bytes:
+        raise HTTPException(400, "Image file is empty")
+
+    with open(file_path, "wb") as f:
+        f.write(file_bytes)
+
+    image_url = f"/uploads/{file_name}"
+    doc = {
+        "item_id": item_id,
+        "canteen_id": canteen_id,
+        "name": name,
+        "price": price,
+        "image": image_url,
+        "image_url": image_url,
+        "category": category,
+        "veg": veg,
+        "available": True,
+    }
     await db.menu_items.insert_one(doc)
     doc.pop("_id", None)
     return doc
