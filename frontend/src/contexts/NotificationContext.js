@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import API from '@/lib/api';
+import API, { getApiUrl } from '@/lib/api';
 
 const NotificationContext = createContext(null);
 
@@ -33,7 +33,7 @@ export function NotificationProvider({ children }) {
       eventSourceRef.current.close();
     }
 
-    const url = `${process.env.REACT_APP_BACKEND_URL}/api/notifications/stream?token=${token}`;
+    const url = `${getApiUrl("/notifications/stream")}?token=${encodeURIComponent(token)}`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
