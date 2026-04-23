@@ -16,6 +16,7 @@ from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
 import os
 import logging
+import re
 import uuid
 import json
 import re
@@ -173,8 +174,8 @@ def build_public_file_url(request: Request, filename: str) -> str:
 # ── Models ──
 
 class StudentLoginReq(BaseModel):
-    auid: Optional[str] = None
-    phone: Optional[str] = None
+    email: str
+    password: str
 
 class StaffLoginReq(BaseModel):
     email: str
@@ -355,24 +356,46 @@ async def seed_data():
 @api_router.get("/")
 async def root():
     return {"message": "CampusBite API running"}
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+_MAX_EMAIL_LEN = 254
+_MIN_PASSWORD_LEN = 6
+_MAX_PASSWORD_LEN = 128
+_ALLOWED_EMAIL_DOMAIN = os.environ.get("ALLOWED_EMAIL_DOMAIN", "acharya.ac.in")
+
+
 @api_router.post("/auth/student/login")
-async def student_login(data: dict):
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+async def student_login(req: StudentLoginReq):
+    email = req.email.strip().lower()
+    password = req.password
 
     if not email or not password:
-        raise HTTPException(400, "Email and password required")
+        raise HTTPException(status_code=400, detail="Email and password are required")
 
-    if not email.endswith("@acharya.ac.in"):
-        raise HTTPException(400, "Use college email")
+    if len(email) > _MAX_EMAIL_LEN:
+        raise HTTPException(status_code=422, detail="Invalid email format")
+
+    if len(password) < _MIN_PASSWORD_LEN or len(password) > _MAX_PASSWORD_LEN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Password must be between {_MIN_PASSWORD_LEN} and {_MAX_PASSWORD_LEN} characters",
+        )
+
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="Invalid email format")
+
+    # Reject inputs containing MongoDB operators or null bytes
+    if "$" in email or "\x00" in email:
+        raise HTTPException(status_code=422, detail="Invalid email format")
+
+    if not email.endswith(f"@{_ALLOWED_EMAIL_DOMAIN}"):
+        raise HTTPException(status_code=403, detail="Only college email addresses are allowed")
 
     user = await db.users.find_one({"email": email, "role": "student"})
 
-    if not user:
-        raise HTTPException(404, "User not found")
-
-    if not verify_password(password, user["password_hash"]):
-        raise HTTPException(401, "Invalid password")
+    # Use a single generic message for both wrong-email and wrong-password
+    # to prevent user-enumeration attacks.
+    if not user or not verify_password(password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_token(str(user["_id"]), "student", {
         "email": email,
