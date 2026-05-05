@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, ChefHat, Package, Clock, Check, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import API from "@/lib/api";
-import { subscribeToCanteenOrders, updateOrderStatus } from "@/lib/firestoreOrders";
 
 const STATUS_COLS = [
   { key: "pending", label: "New Orders", color: "bg-yellow-300", icon: Package },
@@ -12,6 +11,22 @@ const STATUS_COLS = [
   { key: "completed", label: "Completed", color: "bg-lime-400", icon: Check },
   { key: "cancelled", label: "Cancelled", color: "bg-red-300", icon: XCircle },
 ];
+
+const POLL_INTERVAL_MS = 5000;
+const UI_STATUS_BY_API_STATUS = {
+  pending: "pending",
+  placed: "pending",
+  preparing: "preparing",
+  ready: "completed",
+  completed: "completed",
+  cancelled: "cancelled",
+};
+const API_STATUS_BY_UI_STATUS = {
+  pending: "placed",
+  preparing: "preparing",
+  completed: "ready",
+  cancelled: "cancelled",
+};
 
 function formatTime(value) {
   if (!value) {
@@ -26,8 +41,37 @@ function formatTime(value) {
   return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function normalizeStatus(status) {
+  return UI_STATUS_BY_API_STATUS[(status || "").toLowerCase()] || "pending";
+}
+
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeOrder(order) {
+  return {
+    ...order,
+    orderId: order?.orderId || order?.order_id || "",
+    userId: order?.userId || order?.student_auid || "",
+    userEmail: order?.userEmail || order?.student_auid || "",
+    studentAuid: order?.studentAuid || order?.student_auid || "",
+    tokenNumber: order?.tokenNumber || order?.token_number || "",
+    totalAmount: Number(order?.totalAmount ?? order?.total ?? 0),
+    items: Array.isArray(order?.items) ? order.items : [],
+    createdAt: toDate(order?.createdAt || order?.created_at),
+    updatedAt: toDate(order?.updatedAt || order?.updated_at),
+    status: normalizeStatus(order?.status),
+  };
+}
+
 function getStudentLabel(order) {
-  return order.userEmail || order.userId || "Student";
+  return order.userEmail || order.studentAuid || order.userId || "Student";
 }
 
 export default function CanteenDashboardRealtime() {
@@ -40,14 +84,48 @@ export default function CanteenDashboardRealtime() {
   const [menuLoading, setMenuLoading] = useState(true);
   const [orderError, setOrderError] = useState("");
   const [updatingOrders, setUpdatingOrders] = useState({});
+  const ordersRequestInFlightRef = useRef(false);
 
-  const fetchMenuItems = useCallback(() => {
+  const fetchMenuItems = useCallback(async () => {
     setMenuLoading(true);
-    API.get("/staff/menu-items")
-      .then((res) => setMenuItems(res.data))
-      .catch(() => {})
-      .finally(() => setMenuLoading(false));
+    try {
+      const res = await API.get("/staff/menu-items");
+      setMenuItems(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      // Ignore menu fetch errors here to avoid impacting order management.
+    } finally {
+      setMenuLoading(false);
+    }
   }, []);
+
+  const fetchOrders = useCallback(async ({ showLoading = false } = {}) => {
+    if (ordersRequestInFlightRef.current) {
+      return;
+    }
+
+    ordersRequestInFlightRef.current = true;
+    if (showLoading) {
+      setOrdersLoading(true);
+    }
+
+    try {
+      const res = await API.get("/staff/orders");
+      const nextOrders = Array.isArray(res.data) ? res.data.map(normalizeOrder) : [];
+      setOrders(nextOrders);
+      setOrderError("");
+    } catch (error) {
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
+        logout();
+        navigate("/canteen/login");
+        return;
+      }
+
+      setOrderError("Unable to load orders right now");
+    } finally {
+      ordersRequestInFlightRef.current = false;
+      setOrdersLoading(false);
+    }
+  }, [logout, navigate]);
 
   useEffect(() => {
     if (!user || user.role !== "canteen_staff") {
@@ -55,22 +133,16 @@ export default function CanteenDashboardRealtime() {
       return undefined;
     }
 
-    const unsubscribe = subscribeToCanteenOrders(
-      user.canteen_id,
-      (data) => {
-        setOrders(data);
-        setOrderError("");
-        setOrdersLoading(false);
-      },
-      () => {
-        setOrderError("Unable to load orders right now");
-        setOrdersLoading(false);
-      },
-    );
-
+    void fetchOrders({ showLoading: true });
     fetchMenuItems();
-    return unsubscribe;
-  }, [fetchMenuItems, navigate, user]);
+    const intervalId = window.setInterval(() => {
+      void fetchOrders();
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [fetchMenuItems, fetchOrders, navigate, user]);
 
   const moveOrder = async (orderId, newStatus) => {
     const targetOrder = orders.find((order) => order.orderId === orderId);
@@ -79,6 +151,7 @@ export default function CanteenDashboardRealtime() {
     }
 
     const previousStatus = targetOrder.status;
+    const apiStatus = API_STATUS_BY_UI_STATUS[newStatus] || newStatus;
     setUpdatingOrders((current) => ({ ...current, [orderId]: true }));
     setOrders((current) =>
       current.map((order) =>
@@ -89,9 +162,25 @@ export default function CanteenDashboardRealtime() {
     );
 
     try {
-      await updateOrderStatus(orderId, targetOrder.userId, newStatus);
+      const { data } = await API.patch(`/staff/orders/${orderId}/status`, {
+        status: apiStatus,
+      });
+      const nextOrder = normalizeOrder(data);
+      setOrders((current) =>
+        current.map((order) =>
+          order.orderId === orderId
+            ? { ...order, ...nextOrder }
+            : order,
+        ),
+      );
       setOrderError("");
     } catch (error) {
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
+        logout();
+        navigate("/canteen/login");
+        return;
+      }
+
       setOrders((current) =>
         current.map((order) =>
           order.orderId === orderId
@@ -99,7 +188,7 @@ export default function CanteenDashboardRealtime() {
             : order,
         ),
       );
-      setOrderError("Unable to update order right now");
+      setOrderError(error?.response?.data?.detail || "Unable to update order right now");
     } finally {
       setUpdatingOrders((current) => {
         const next = { ...current };
@@ -123,9 +212,12 @@ export default function CanteenDashboardRealtime() {
     navigate("/");
   };
 
+  const newOrders = orders.filter((order) => order.status === "pending");
+  const activeOrders = orders.filter((order) => order.status === "preparing");
+  const completedOrders = orders.filter((order) => order.status === "completed");
   const todayOrders = orders.length;
-  const activeCount = orders.filter((order) => ["pending", "preparing"].includes(order.status)).length;
-  const completedCount = orders.filter((order) => order.status === "completed").length;
+  const activeCount = activeOrders.length;
+  const completedCount = completedOrders.length;
 
   if (ordersLoading && menuLoading) {
     return <div className="min-h-screen bg-[#F0FDF4] flex items-center justify-center"><div className="animate-spin w-8 h-8 border-4 border-black border-t-pink-400 rounded-full" /></div>;

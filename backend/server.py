@@ -26,6 +26,7 @@ from pywebpush import webpush, WebPushException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
 JWT_ALGORITHM = "HS256"
@@ -51,6 +52,7 @@ api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+BUSINESS_TIMEZONE = ZoneInfo(os.environ.get("BUSINESS_TIMEZONE", "Asia/Kolkata"))
 
 # ── Notification Pub/Sub ──
 notification_subscribers: Dict[str, List[asyncio.Queue]] = {}
@@ -118,6 +120,17 @@ async def send_push_notification(student_id: str, payload: dict):
 class PushSubscriptionReq(BaseModel):
     subscription: Dict[str, Any]
 
+def build_order_status_message(token_number: str, status: str, canteen_name: str = "") -> str:
+    cleaned_status = (status or "").lower()
+    if cleaned_status == "preparing":
+        return f"Your order #{token_number} is now being prepared!"
+    if cleaned_status in {"completed", "ready"}:
+        counter_name = canteen_name or "counter"
+        return f"Your order #{token_number} is ready! Collect from {counter_name}."
+    if cleaned_status == "cancelled":
+        return f"Your order #{token_number} was cancelled."
+    return f"Your order #{token_number} was updated."
+
 # ── Auth Utilities ──
 
 def hash_password(password: str) -> str:
@@ -149,6 +162,20 @@ async def get_current_user(request: Request) -> dict:
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+def get_business_day_bounds(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
+    current_time = (now or utc_now()).astimezone(BUSINESS_TIMEZONE)
+    start_local = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+def normalize_staff_order_status(status: Optional[str]) -> str:
+    value = (status or "").strip().lower()
+    aliases = {
+        "pending": "placed",
+        "completed": "ready",
+    }
+    return aliases.get(value, value)
 
 def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -761,8 +788,18 @@ async def get_canteen_orders(request: Request):
     payload = await get_current_user(request)
     if payload["role"] != "canteen_staff":
         raise HTTPException(403, "Forbidden")
+    start_of_day, end_of_day = get_business_day_bounds()
     # Sort by priority (paid first), then by created_at
-    orders = await db.orders.find({"canteen_id": payload["canteen_id"]}, {"_id": 0}).to_list(200)
+    orders = await db.orders.find(
+        {
+            "canteen_id": payload["canteen_id"],
+            "created_at": {
+                "$gte": start_of_day.isoformat(),
+                "$lt": end_of_day.isoformat(),
+            },
+        },
+        {"_id": 0},
+    ).to_list(200)
     return sorted(orders, key=lambda x: (not x.get("priority", False), x.get("created_at", "")))
 
 @api_router.patch("/staff/orders/{order_id}/status")
@@ -775,31 +812,51 @@ async def update_order_status(order_id: str, req: StatusUpdateReq, request: Requ
         raise HTTPException(404, "Order not found")
     if order["canteen_id"] != payload["canteen_id"]:
         raise HTTPException(403, "Not your canteen's order")
-    valid = {"placed": "preparing", "preparing": "ready"}
-    if order["status"] not in valid or valid[order["status"]] != req.status:
-        raise HTTPException(400, f"Invalid transition: {order['status']} -> {req.status}")
-    await db.orders.update_one({"order_id": order_id}, {"$set": {"status": req.status, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    current_status = normalize_staff_order_status(order.get("status"))
+    next_status = normalize_staff_order_status(req.status)
+    valid_transitions = {
+        "placed": {"preparing", "cancelled"},
+        "preparing": {"ready", "cancelled"},
+    }
+    if current_status == next_status:
+        return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
+    if current_status not in valid_transitions or next_status not in valid_transitions[current_status]:
+        raise HTTPException(400, f"Invalid transition: {current_status} -> {next_status}")
+    await db.orders.update_one(
+        {"order_id": order_id},
+        {
+            "$set": {
+                "status": next_status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
     updated = await db.orders.find_one({"order_id": order_id}, {"_id": 0})
     # Push real-time notification to student
     student_id = order.get("student_auid", "")
     if student_id:
-        msg = f"Your order #{order['token_number']} is now being prepared!" if req.status == "preparing" else f"Your order #{order['token_number']} is ready! Collect from {order.get('canteen_name', 'counter')}."
+        msg = build_order_status_message(order["token_number"], next_status, order.get("canteen_name", ""))
         await publish_notification(student_id, {
             "type": "order_status",
             "order_id": order_id,
             "token_number": order["token_number"],
-            "status": req.status,
+            "status": next_status,
             "canteen_name": order.get("canteen_name", ""),
             "message": msg
         })
         # Send Web Push notification (works even when app is closed)
-        push_title = "Order Being Prepared" if req.status == "preparing" else "Order Ready!"
+        if next_status == "preparing":
+            push_title = "Order Being Prepared"
+        elif next_status == "cancelled":
+            push_title = "Order Cancelled"
+        else:
+            push_title = "Order Ready!"
         push_body = msg
         await send_push_notification(student_id, {
             "title": push_title,
             "body": push_body,
             "tag": f"order-{order_id}",
-            "status": req.status,
+            "status": next_status,
             "order_id": order_id,
             "url": "/"
         })
