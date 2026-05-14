@@ -458,6 +458,10 @@ export function subscribeToStudentOrders(activeUser, onData, onError) {
     canteenId: getActiveCanteenId(activeUser),
   });
 
+  if (canUseRailwayFallback({ activeUser, role })) {
+    return createRailwayRealtimeSubscription({}, onData, onError, role);
+  }
+
   if (source === ORDER_SOURCES.FIREBASE) {
     return createFirebaseSubscriptionWithRailwayFallback(
       { userId: activeUser?.uid },
@@ -477,6 +481,10 @@ export function subscribeToStudentOrder(activeUser, orderId, onData, onError) {
     firebaseUid: activeUser?.uid,
     canteenId: getActiveCanteenId(activeUser),
   });
+
+  if (canUseRailwayFallback({ activeUser, role })) {
+    return createRailwayRealtimeSubscription({ orderId }, onData, onError, role);
+  }
 
   if (source === ORDER_SOURCES.FIREBASE) {
     return createFirebaseSubscriptionWithRailwayFallback(
