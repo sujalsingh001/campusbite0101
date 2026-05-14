@@ -69,7 +69,7 @@ export default function StudentOrderRealtime() {
     );
 
     return unsubscribe;
-  }, [activeUser, loading, orderId]);
+  }, [activeUser?.role, activeUser?.uid, loading, orderId]);
 
   useEffect(() => {
     if (!order?.createdAt) {

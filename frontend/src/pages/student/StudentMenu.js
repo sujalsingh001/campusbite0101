@@ -37,8 +37,9 @@ export default function StudentMenu() {
   };
 
   const handleAdd = (item) => {
-    const cName = canteens.find(c => c.canteen_id === activeCanteen)?.name || "";
-    addItem({ item_id: item.item_id, name: item.name, price: item.price, image: item.image }, activeCanteen, cName);
+    const itemCanteenId = item.canteen_id || activeCanteen;
+    const cName = canteens.find(c => c.canteen_id === itemCanteenId)?.name || "";
+    addItem({ item_id: item.item_id, name: item.name, price: item.price, image: item.image }, itemCanteenId, cName);
   };
 
   const handleRemove = (itemId) => removeItem(itemId);
