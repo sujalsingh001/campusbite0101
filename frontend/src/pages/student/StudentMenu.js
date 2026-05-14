@@ -79,7 +79,7 @@ export default function StudentMenu() {
           </div>
           <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none w-5 h-5 text-gray-400" strokeWidth={2.5} />
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search for food..." className="input-brutal w-full pl-10" data-testid="search-input" />
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search for food..." className="input-brutal w-full" style={{ paddingLeft: "44px" }} data-testid="search-input" />
           </div>
         </div>
         <ScrollArea className="w-full">
