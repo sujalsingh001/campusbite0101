@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Clock, Check, Package, Bell, ChefHat, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { subscribeToUserOrder } from "@/lib/firestoreOrders";
+import { subscribeToStudentOrder, updateOrderStatus } from "@/lib/ordersDataSource";
+import { toast } from "@/hooks/use-toast";
 
 const ACTIVE_STATUSES = [
   { key: "pending", label: "Order Pending", icon: Package, description: "Your order has been placed successfully" },
@@ -28,13 +29,24 @@ function getStatusColor(key) {
   }[key] || "bg-gray-200");
 }
 
+function formatCountdown(totalSeconds) {
+  const safeSeconds = Math.max(0, totalSeconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 export default function StudentOrderRealtime() {
   const navigate = useNavigate();
   const { orderId } = useParams();
   const { user, currentUser, loading } = useAuth();
   const [order, setOrder] = useState(null);
   const [orderLoading, setOrderLoading] = useState(true);
-  const activeUser = currentUser || (user?.role === "student" ? user : null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const activeUser = currentUser?.role === "student"
+    ? currentUser
+    : (user?.role === "student" ? user : null);
 
   useEffect(() => {
     if (loading) {
@@ -46,8 +58,8 @@ export default function StudentOrderRealtime() {
       return undefined;
     }
 
-    const unsubscribe = subscribeToUserOrder(
-      activeUser.uid,
+    const unsubscribe = subscribeToStudentOrder(
+      activeUser,
       orderId,
       (data) => {
         setOrder(data);
@@ -58,6 +70,78 @@ export default function StudentOrderRealtime() {
 
     return unsubscribe;
   }, [activeUser, loading, orderId]);
+
+  useEffect(() => {
+    if (!order?.createdAt) {
+      setSecondsLeft(0);
+      return undefined;
+    }
+
+    if (!["new", "pending"].includes((order.status || "").toLowerCase())) {
+      setSecondsLeft(0);
+      return undefined;
+    }
+
+    const updateSecondsLeft = () => {
+      const createdAtMs = order.createdAt instanceof Date
+        ? order.createdAt.getTime()
+        : new Date(order.createdAt).getTime();
+
+      if (Number.isNaN(createdAtMs)) {
+        setSecondsLeft(0);
+        return 0;
+      }
+
+      const elapsedSeconds = Math.floor((Date.now() - createdAtMs) / 1000);
+      const nextSecondsLeft = Math.max(0, 120 - elapsedSeconds);
+      setSecondsLeft(nextSecondsLeft);
+      return nextSecondsLeft;
+    };
+
+    const initialSecondsLeft = updateSecondsLeft();
+    if (initialSecondsLeft <= 0) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const nextSecondsLeft = updateSecondsLeft();
+      if (nextSecondsLeft <= 0) {
+        window.clearInterval(intervalId);
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [order?.createdAt, order?.status]);
+
+  const canCancelOrder = ["new", "pending"].includes((order?.status || "").toLowerCase()) && secondsLeft > 0;
+
+  const handleCancelOrder = async () => {
+    if (!order?.orderId || !activeUser || isCancelling) {
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      const updatedOrder = await updateOrderStatus(order.orderId, "cancelled", {
+        activeUser,
+        role: activeUser.role || "student",
+      });
+      setOrder((current) => ({
+        ...current,
+        ...updatedOrder,
+        status: "cancelled",
+      }));
+      setSecondsLeft(0);
+    } catch (error) {
+      toast({
+        title: "Could not cancel, please contact canteen",
+      });
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   if (loading || orderLoading) {
     return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
@@ -176,6 +260,19 @@ export default function StudentOrderRealtime() {
           </div>
         </div>
       </div>
+
+      {canCancelOrder && (
+        <div className="px-5 mt-4">
+          <button
+            onClick={handleCancelOrder}
+            disabled={isCancelling}
+            className="w-full bg-red-300 border-[3px] border-black rounded-xl p-4 text-center font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal disabled:opacity-50"
+            data-testid="cancel-order-btn"
+          >
+            {isCancelling ? "Cancelling..." : `Cancel order (${formatCountdown(secondsLeft)} remaining)`}
+          </button>
+        </div>
+      )}
 
       {(order.status === "pending" || order.status === "preparing") && (
         <div className="px-5 mt-4">
