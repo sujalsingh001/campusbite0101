@@ -17,6 +17,7 @@ export default function StudentMenu() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [loading, setLoading] = useState(true);
+  const userKey = user?.uid || user?.email || user?.auid || user?.role || "";
 
   useEffect(() => {
     if (!user) { navigate("/student/login"); return; }
@@ -24,7 +25,7 @@ export default function StudentMenu() {
       setCanteens(res.data);
       if (res.data.length > 0) setActiveCanteen(res.data[0].canteen_id);
     }).catch(console.error).finally(() => setLoading(false));
-  }, [user, navigate]);
+  }, [userKey, navigate]);
 
   useEffect(() => {
     if (!activeCanteen) return;
