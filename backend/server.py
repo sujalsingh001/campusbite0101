@@ -32,6 +32,7 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
 JWT_ALGORITHM = "HS256"
 TEMP_DISABLE_STUDENT_LOGIN = os.environ.get('TEMP_DISABLE_STUDENT_LOGIN', 'true').lower() in {'1', 'true', 'yes', 'on'}
 PAYMENT_SESSION_WINDOW_SECONDS = 4 * 60
+STUDENT_CANCEL_WINDOW_SECONDS = 120
 MAX_PAYMENT_ATTEMPTS = 3
 ADMIN_EMAIL = "sujalsinghrathore52@gmail.com"
 ADMIN_PASSWORD = "Sujal@2004"
@@ -805,15 +806,29 @@ async def get_canteen_orders(request: Request):
 @api_router.patch("/staff/orders/{order_id}/status")
 async def update_order_status(order_id: str, req: StatusUpdateReq, request: Request):
     payload = await get_current_user(request)
-    if payload["role"] != "canteen_staff":
-        raise HTTPException(403, "Forbidden")
     order = await db.orders.find_one({"order_id": order_id})
     if not order:
         raise HTTPException(404, "Order not found")
-    if order["canteen_id"] != payload["canteen_id"]:
-        raise HTTPException(403, "Not your canteen's order")
     current_status = normalize_staff_order_status(order.get("status"))
     next_status = normalize_staff_order_status(req.status)
+
+    if payload["role"] == "student":
+        student_identifier = payload.get("auid") or payload.get("phone")
+        if next_status != "cancelled" or order.get("student_auid") != student_identifier:
+            raise HTTPException(403, "Forbidden")
+        if current_status == next_status:
+            return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
+        created_at = parse_iso_datetime(order.get("created_at"))
+        if current_status != "placed" or not created_at:
+            raise HTTPException(400, f"Invalid transition: {current_status} -> {next_status}")
+        if (utc_now() - created_at).total_seconds() > STUDENT_CANCEL_WINDOW_SECONDS:
+            raise HTTPException(403, "Cancellation window expired")
+    elif payload["role"] == "canteen_staff":
+        if order["canteen_id"] != payload["canteen_id"]:
+            raise HTTPException(403, "Not your canteen's order")
+    else:
+        raise HTTPException(403, "Forbidden")
+
     valid_transitions = {
         "placed": {"preparing", "cancelled"},
         "preparing": {"ready", "cancelled"},
