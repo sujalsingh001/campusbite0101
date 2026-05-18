@@ -8,7 +8,6 @@ import {
   RecaptchaVerifier,
   getIdTokenResult,
   linkWithPhoneNumber,
-  signInWithCustomToken,
 } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import API from '@/lib/api';
@@ -16,7 +15,6 @@ import {
   auth,
   db,
   debugFirebaseLog,
-  getFirebaseFunctionUrl,
 } from "@/lib/firebase";
 
 const AuthContext = createContext(null);
@@ -178,49 +176,6 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
-  const ensureStaffFirebaseSession = useCallback(async (staffUser, backendTokenOverride = "") => {
-    if (!isStaffIdentity(staffUser)) {
-      return false;
-    }
-
-    if (isStaffIdentity(currentUser) && currentUser.canteen_id === staffUser.canteen_id) {
-      return true;
-    }
-
-    const backendToken = backendTokenOverride || localStorage.getItem("campusbite_token") || "";
-    if (!backendToken) {
-      return false;
-    }
-
-    try {
-      debugFirebaseLog("Exchanging Firebase staff session", {
-        canteenId: staffUser.canteen_id || "",
-      });
-
-      const response = await fetch(getFirebaseFunctionUrl("exchangeStaffSession"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${backendToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        throw new Error(errorPayload.error || "Unable to exchange staff Firebase session");
-      }
-
-      const payload = await response.json();
-      await signInWithCustomToken(auth, payload.customToken);
-      debugFirebaseLog("Firebase staff session established", {
-        canteenId: staffUser.canteen_id || "",
-      });
-      return true;
-    } catch (error) {
-      console.error("Firebase staff session bootstrap failed:", error);
-      return false;
-    }
-  }, []);
-
   const bootstrapTemporaryStudentSession = useCallback(async ({ email, auid }) => {
     const effectiveAuid = normalizeStudentAuid(auid) || deriveStudentAuidFromEmail(email);
     if (!effectiveAuid) {
@@ -267,7 +222,9 @@ export function AuthProvider({ children }) {
         await loginBackendStudentSession(normalizedEmail, password);
         return true;
       } catch (error) {
-        console.error("[Auth] backend student login failed", error);
+        debugFirebaseLog("Backend student password login failed, falling back to temporary session", {
+          status: error?.response?.status || "",
+        });
       }
     }
 
@@ -308,27 +265,27 @@ export function AuthProvider({ children }) {
 
       profileUnsubscribeRef.current = onSnapshot(
         doc(db, "users", firebaseUser.uid),
-        (snapshot) => {
+        async (snapshot) => {
           const profileData = snapshot.exists() ? snapshot.data() : {};
-          void applyFirebaseUser(firebaseUser, profileData, authClaims);
           if (!localStorage.getItem("campusbite_token")) {
-            void ensureBackendStudentSession({
+            await ensureBackendStudentSession({
               email: firebaseUser.email || "",
               auid: profileData.auid || "",
               phone: profileData.phoneNumber || "",
               mode: "bootstrap",
             });
           }
+          await applyFirebaseUser(firebaseUser, profileData, authClaims);
           setLoading(false);
         },
-        () => {
-          void applyFirebaseUser(firebaseUser, {}, authClaims);
+        async () => {
           if (!localStorage.getItem("campusbite_token")) {
-            void ensureBackendStudentSession({
+            await ensureBackendStudentSession({
               email: firebaseUser.email || "",
               mode: "bootstrap",
             });
           }
+          await applyFirebaseUser(firebaseUser, {}, authClaims);
           setLoading(false);
         },
       );
@@ -353,18 +310,6 @@ export function AuthProvider({ children }) {
       }
     };
   }, [applyFirebaseUser, ensureBackendStudentSession]); // Empty deps is correct - only runs once on mount
-
-  useEffect(() => {
-    if (loading || !isStaffIdentity(user)) {
-      return;
-    }
-
-    if (isStaffIdentity(resolvedCurrentUser) && resolvedCurrentUser.canteen_id === user.canteen_id) {
-      return;
-    }
-
-    void ensureStaffFirebaseSession(user);
-  }, [ensureStaffFirebaseSession, loading, resolvedCurrentUser, user]);
 
   useEffect(() => {
     debugFirebaseLog("Resolved currentUser value", {
@@ -566,9 +511,8 @@ export function AuthProvider({ children }) {
     const { data } = await API.post('/auth/staff/login', { email, password });
     localStorage.setItem('campusbite_token', data.token);
     setUser(data.user);
-    void ensureStaffFirebaseSession(data.user, data.token);
     return data;
-  }, [ensureStaffFirebaseSession, setUser]);
+  }, [setUser]);
 
   const adminLogin = useCallback(async (email, password) => {
     const { data } = await API.post('/auth/admin/login', { email, password });

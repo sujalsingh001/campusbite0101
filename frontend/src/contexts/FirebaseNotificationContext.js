@@ -310,7 +310,7 @@ export function NotificationProvider({ children }) {
   }, [loading, orderSource, user]);
 
   useEffect(() => {
-    if (loading || !activeUser?.uid) {
+    if (loading || orderSource !== ORDER_SOURCES.FIREBASE || !activeUser?.uid) {
       return undefined;
     }
 
@@ -341,7 +341,7 @@ export function NotificationProvider({ children }) {
       orderStatusesRef.current = new Map();
       unsubscribe();
     };
-  }, [activeUser?.role, activeUser?.uid, loading]);
+  }, [activeUser?.role, activeUser?.uid, loading, orderSource]);
 
   const value = useMemo(() => ({}), []);
 
