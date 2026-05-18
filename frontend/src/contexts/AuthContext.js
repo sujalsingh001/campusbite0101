@@ -202,6 +202,22 @@ export function AuthProvider({ children }) {
     const normalizedEmail = (email || "").trim().toLowerCase();
     const normalizedAuid = normalizeStudentAuid(auid) || deriveStudentAuidFromEmail(normalizedEmail);
 
+    if (mode !== "register") {
+      try {
+        const temporarySession = await bootstrapTemporaryStudentSession({
+          email: normalizedEmail,
+          auid: normalizedAuid,
+        });
+        if (temporarySession) {
+          return true;
+        }
+      } catch (error) {
+        debugFirebaseLog("Temporary student session bootstrap failed before password login", {
+          status: error?.response?.status || "",
+        });
+      }
+    }
+
     if (mode === "register" && normalizedEmail && password && normalizedAuid) {
       try {
         await registerBackendStudentAccount({
@@ -229,6 +245,10 @@ export function AuthProvider({ children }) {
     }
 
     try {
+      if (mode !== "register") {
+        return false;
+      }
+
       const temporarySession = await bootstrapTemporaryStudentSession({
         email: normalizedEmail,
         auid: normalizedAuid,
