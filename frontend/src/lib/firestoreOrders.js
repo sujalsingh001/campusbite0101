@@ -1,93 +1,254 @@
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
-  writeBatch,
+  where,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import {
+  db,
+  debugFirebaseLog,
+  firebaseCollections,
+  functions,
+} from "@/lib/firebase";
+
+const UI_STATUS_BY_FIREBASE_STATUS = {
+  new: "pending",
+  pending: "pending",
+  placed: "pending",
+  preparing: "preparing",
+  ready: "completed",
+  completed: "completed",
+  cancelled: "cancelled",
+};
+
+const FIREBASE_STATUS_BY_UI_STATUS = {
+  pending: "new",
+  new: "new",
+  preparing: "preparing",
+  completed: "completed",
+  ready: "completed",
+  cancelled: "cancelled",
+};
+
+function ordersCollection() {
+  return collection(db, firebaseCollections.orders);
+}
+
+function orderDoc(orderId) {
+  return doc(db, firebaseCollections.orders, orderId);
+}
 
 function userDoc(uid) {
-  return doc(db, "users", uid);
+  return doc(db, firebaseCollections.users, uid);
 }
 
-function userOrdersCollection(uid) {
-  return collection(userDoc(uid), "orders");
-}
-
-function canteenOrdersCollection() {
-  return collection(db, "canteenOrders");
-}
-
-function normalizeStatus(status) {
-  return (status || "pending").toLowerCase();
-}
-
-function formatOrderDoc(snapshot) {
-  const data = snapshot.data();
+function normalizeItem(item) {
   return {
-    orderId: snapshot.id,
-    ...data,
-    status: normalizeStatus(data?.status),
-    createdAt: data?.createdAt?.toDate ? data.createdAt.toDate() : null,
-    updatedAt: data?.updatedAt?.toDate ? data.updatedAt.toDate() : null,
+    item_id: item?.item_id || item?.id || "",
+    name: item?.name || "",
+    qty: Number(item?.qty || 0),
+    price: Number(item?.price || 0),
+    image: item?.image || "",
   };
 }
 
-export async function saveUserOrder(uid, order) {
-  const userOrderRef = doc(userOrdersCollection(uid));
-  const orderId = userOrderRef.id;
-  const canteenOrderRef = doc(db, "canteenOrders", orderId);
-  const timestamp = serverTimestamp();
-  const tokenNumber = order.tokenNumber || orderId.slice(-4).toUpperCase();
-  const orderDoc = {
-    orderId,
-    userId: uid,
+function normalizeStatus(status) {
+  return UI_STATUS_BY_FIREBASE_STATUS[(status || "").toLowerCase()] || "pending";
+}
+
+function toFirebaseStatus(status) {
+  return FIREBASE_STATUS_BY_UI_STATUS[(status || "").toLowerCase()] || "new";
+}
+
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value?.toDate === "function") {
+    return value.toDate();
+  }
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function buildDisplayFields(data = {}) {
+  const items = Array.isArray(data.items) ? data.items.map(normalizeItem) : [];
+  const quantity = Number(
+    data.quantity
+    ?? items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
+    ?? 0,
+  );
+  const totalAmount = Number(
+    data.totalAmount
+    ?? items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.qty || 0)), 0)
+    ?? 0,
+  );
+  const itemName = data.itemName || items.map((item) => item.name).filter(Boolean).join(", ");
+
+  return {
+    items,
+    quantity,
+    totalAmount,
+    itemName,
+  };
+}
+
+function formatOrder(orderId, data = {}) {
+  const display = buildDisplayFields(data);
+
+  return {
+    id: data.id || orderId,
+    orderId: data.orderId || orderId,
+    userId: data.userId || "",
+    userEmail: data.userEmail || "",
+    phoneNumber: data.phoneNumber || "",
+    canteenId: data.canteenId || "",
+    canteenName: data.canteenName || "",
+    tokenNumber: data.tokenNumber || orderId.slice(-4).toUpperCase(),
+    transactionId: data.transactionId || "N/A",
+    paymentMethod: data.paymentMethod || "none",
+    paymentStatus: data.paymentStatus || "",
+    priority: Boolean(data.priority),
+    studentAuid: data.studentAuid || data.userEmail || "",
+    status: normalizeStatus(data.status),
+    createdAt: toDate(data.createdAt),
+    updatedAt: toDate(data.updatedAt),
+    ...display,
+  };
+}
+
+function buildRealtimeQuery(filters = {}) {
+  const constraints = [];
+
+  if (filters.userId) {
+    constraints.push(where("userId", "==", filters.userId));
+  }
+
+  if (filters.canteenId) {
+    constraints.push(where("canteenId", "==", filters.canteenId));
+  }
+
+  constraints.push(orderBy("createdAt", "desc"));
+  constraints.push(limit(filters.limitCount || 200));
+
+  return query(ordersCollection(), ...constraints);
+}
+
+async function callOrderStatusFunction(functionName, payload) {
+  debugFirebaseLog("Calling Firebase order function", {
+    functionName,
+    orderId: payload?.orderId || "",
+    newStatus: payload?.newStatus || "",
+  });
+  const callable = httpsCallable(functions, functionName);
+  const response = await callable(payload);
+  return response.data?.order || null;
+}
+
+export async function getOrders(filters = {}) {
+  debugFirebaseLog("Fetching Firebase orders", filters);
+  if (filters.orderId) {
+    const snapshot = await getDoc(orderDoc(filters.orderId));
+    if (!snapshot.exists()) {
+      return null;
+    }
+
+    const order = formatOrder(snapshot.id, snapshot.data());
+    if (filters.userId && order.userId !== filters.userId) {
+      return null;
+    }
+    if (filters.canteenId && order.canteenId !== filters.canteenId) {
+      return null;
+    }
+    return order;
+  }
+
+  const snapshot = await getDocs(buildRealtimeQuery(filters));
+  const orders = snapshot.docs.map((entry) => formatOrder(entry.id, entry.data()));
+
+  if (!Array.isArray(filters.statuses) || filters.statuses.length === 0) {
+    return orders;
+  }
+
+  const allowed = new Set(filters.statuses.map(normalizeStatus));
+  return orders.filter((order) => allowed.has(order.status));
+}
+
+export async function createOrder(order) {
+  debugFirebaseLog("Creating Firebase order", {
+    canteenId: order?.canteenId || "",
+    userId: order?.userId || "",
+  });
+  const orderRef = doc(ordersCollection());
+  const display = buildDisplayFields(order);
+  const tokenNumber = order.tokenNumber || orderRef.id.slice(-4).toUpperCase();
+  const orderDocData = {
+    id: orderRef.id,
+    orderId: orderRef.id,
+    userId: order.userId || "",
     userEmail: order.userEmail || "",
     phoneNumber: order.phoneNumber || "",
-    itemName: order.itemName || "",
-    quantity: order.quantity || 0,
-    totalAmount: order.totalAmount || 0,
+    studentAuid: order.studentAuid || order.userEmail || "",
+    items: display.items,
+    itemName: display.itemName,
+    quantity: display.quantity,
+    totalAmount: display.totalAmount,
     transactionId: order.transactionId || "N/A",
-    status: normalizeStatus(order.status),
-    items: order.items || [],
+    status: toFirebaseStatus(order.status),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
     canteenId: order.canteenId || "",
     canteenName: order.canteenName || "",
     tokenNumber,
     paymentMethod: order.paymentMethod || "none",
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    paymentStatus: order.paymentStatus || "",
+    priority: Boolean(order.priority),
   };
 
-  const batch = writeBatch(db);
-  batch.set(userDoc(uid), {
-    email: order.userEmail || "",
-    phoneNumber: order.phoneNumber || "",
-    phoneVerified: Boolean(order.phoneNumber),
-    updatedAt: timestamp,
-  }, { merge: true });
-  batch.set(userOrderRef, orderDoc);
-  batch.set(canteenOrderRef, orderDoc);
-  await batch.commit();
-  return orderId;
+  await setDoc(orderRef, orderDocData);
+
+  if (order.userId) {
+    await setDoc(userDoc(order.userId), {
+      email: order.userEmail || "",
+      phoneNumber: order.phoneNumber || "",
+      phoneVerified: Boolean(order.phoneNumber),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  }
+
+  return orderRef.id;
 }
 
-export async function updateOrderStatus(orderId, userId, status) {
-  const normalizedStatus = normalizeStatus(status);
-  const timestamp = serverTimestamp();
-  const batch = writeBatch(db);
-  batch.set(doc(db, "canteenOrders", orderId), {
-    status: normalizedStatus,
-    updatedAt: timestamp,
-  }, { merge: true });
-  batch.set(doc(db, "users", userId, "orders", orderId), {
-    status: normalizedStatus,
-    updatedAt: timestamp,
-  }, { merge: true });
-  await batch.commit();
+export async function updateOrderStatus(orderId, userIdOrStatus, maybeStatus) {
+  const nextStatus = maybeStatus || userIdOrStatus;
+  const normalizedStatus = toFirebaseStatus(nextStatus);
+  let functionName = "updateOrderStatus";
+  if (normalizedStatus === "preparing") {
+    functionName = "markPreparing";
+  } else if (normalizedStatus === "cancelled") {
+    functionName = "cancelOrder";
+  }
+
+  const order = await callOrderStatusFunction(functionName, {
+    orderId,
+    newStatus: normalizedStatus,
+  });
+
+  if (!order) {
+    return getOrders({ orderId });
+  }
+
+  return formatOrder(order.id || order.orderId || orderId, order);
 }
 
 export async function saveUserNotificationToken(uid, data) {
@@ -111,36 +272,77 @@ export async function saveUserNotificationToken(uid, data) {
   await setDoc(userDoc(uid), update, { merge: true });
 }
 
-export function subscribeToUserOrders(uid, onData, onError) {
-  const ordersQuery = query(userOrdersCollection(uid), orderBy("createdAt", "desc"));
+export function subscribeToOrdersRealtime(filters, onData, onError) {
+  debugFirebaseLog("Subscribing to Firebase orders", filters);
+  if (filters?.orderId) {
+    return onSnapshot(
+      orderDoc(filters.orderId),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          onData(null);
+          return;
+        }
+
+        const order = formatOrder(snapshot.id, snapshot.data());
+        if (filters.userId && order.userId !== filters.userId) {
+          onData(null);
+          return;
+        }
+        if (filters.canteenId && order.canteenId !== filters.canteenId) {
+          onData(null);
+          return;
+        }
+
+        onData(order);
+      },
+      onError,
+    );
+  }
+
   return onSnapshot(
-    ordersQuery,
-    (snapshot) => onData(snapshot.docs.map(formatOrderDoc)),
+    buildRealtimeQuery(filters),
+    (snapshot) => {
+      const orders = snapshot.docs.map((entry) => formatOrder(entry.id, entry.data()));
+
+      if (!Array.isArray(filters?.statuses) || filters.statuses.length === 0) {
+        onData(orders);
+        return;
+      }
+
+      const allowed = new Set(filters.statuses.map(normalizeStatus));
+      onData(orders.filter((order) => allowed.has(order.status)));
+    },
+    onError,
+  );
+}
+
+export async function saveUserOrder(uid, order) {
+  return createOrder({
+    ...order,
+    userId: uid,
+  });
+}
+
+export function subscribeToUserOrders(uid, onData, onError) {
+  return subscribeToOrdersRealtime(
+    { userId: uid },
+    onData,
     onError,
   );
 }
 
 export function subscribeToUserOrder(uid, orderId, onData, onError) {
-  const orderDoc = doc(db, "users", uid, "orders", orderId);
-  return onSnapshot(
-    orderDoc,
-    (snapshot) => onData(snapshot.exists() ? formatOrderDoc(snapshot) : null),
+  return subscribeToOrdersRealtime(
+    { userId: uid, orderId },
+    onData,
     onError,
   );
 }
 
 export function subscribeToCanteenOrders(canteenId, onData, onError) {
-  const ordersQuery = query(canteenOrdersCollection(), orderBy("createdAt", "desc"));
-  return onSnapshot(
-    ordersQuery,
-    (snapshot) => {
-      const allOrders = snapshot.docs.map(formatOrderDoc);
-      onData(
-        canteenId
-          ? allOrders.filter((order) => order.canteenId === canteenId)
-          : allOrders,
-      );
-    },
+  return subscribeToOrdersRealtime(
+    { canteenId },
+    onData,
     onError,
   );
 }
