@@ -5,6 +5,14 @@
   "installCommand": "cd frontend && npm install",
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://campusbite0101-production-f248.up.railway.app/api/$1"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "https://campusbite0101-production-f248.up.railway.app/uploads/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
