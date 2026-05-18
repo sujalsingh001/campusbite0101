@@ -47,13 +47,15 @@ export default function StudentOrderRealtime() {
   const activeUser = currentUser?.role === "student"
     ? currentUser
     : (user?.role === "student" ? user : null);
+  const hasBackendSession = typeof window !== "undefined" && Boolean(localStorage.getItem("campusbite_token"));
+  const canLoadOrder = Boolean(activeUser?.uid || (activeUser?.role === "student" && hasBackendSession));
 
   useEffect(() => {
     if (loading) {
       return undefined;
     }
 
-    if (!activeUser?.uid || !orderId) {
+    if (!canLoadOrder || !orderId) {
       setOrderLoading(false);
       return undefined;
     }
@@ -69,7 +71,7 @@ export default function StudentOrderRealtime() {
     );
 
     return unsubscribe;
-  }, [activeUser?.role, activeUser?.uid, loading, orderId]);
+  }, [activeUser, canLoadOrder, loading, orderId]);
 
   useEffect(() => {
     if (!order?.createdAt) {
@@ -147,7 +149,7 @@ export default function StudentOrderRealtime() {
     return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
   }
 
-  if (!activeUser?.uid) {
+  if (!canLoadOrder) {
     return (
       <div className="mobile-wrapper flex items-center justify-center min-h-screen p-6 text-center">
         <div>

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, ChefHat, Package, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { subscribeToUserOrders } from "@/lib/firestoreOrders";
+import { subscribeToStudentOrders } from "@/lib/ordersDataSource";
 
 const statusConfig = {
   pending: { label: "Pending", color: "bg-yellow-300", badgeColor: "#FDE047", icon: Package },
@@ -21,20 +21,24 @@ export default function StudentOrdersRealtime() {
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [error, setError] = useState("");
-  const activeUser = currentUser || (user?.role === "student" ? user : null);
+  const activeUser = currentUser?.role === "student"
+    ? currentUser
+    : (user?.role === "student" ? user : null);
+  const hasBackendSession = typeof window !== "undefined" && Boolean(localStorage.getItem("campusbite_token"));
+  const canLoadOrders = Boolean(activeUser?.uid || (activeUser?.role === "student" && hasBackendSession));
 
   useEffect(() => {
     if (loading) {
       return undefined;
     }
 
-    if (!activeUser?.uid) {
+    if (!canLoadOrders) {
       setOrdersLoading(false);
       return undefined;
     }
 
-    const unsubscribe = subscribeToUserOrders(
-      activeUser.uid,
+    const unsubscribe = subscribeToStudentOrders(
+      activeUser,
       (data) => {
         setOrders(data);
         setError("");
@@ -47,13 +51,13 @@ export default function StudentOrdersRealtime() {
     );
 
     return unsubscribe;
-  }, [activeUser, loading]);
+  }, [activeUser, canLoadOrders, loading]);
 
   if (loading || ordersLoading) {
     return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
   }
 
-  if (!activeUser?.uid) {
+  if (!canLoadOrders) {
     return (
       <div className="mobile-wrapper flex items-center justify-center min-h-screen p-6 text-center">
         <div>

@@ -6,24 +6,44 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail,
   RecaptchaVerifier,
+  getIdTokenResult,
   linkWithPhoneNumber,
+  signInWithCustomToken,
 } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import API from '@/lib/api';
-import { auth, db } from "@/lib/firebase";
+import {
+  auth,
+  db,
+  debugFirebaseLog,
+  getFirebaseFunctionUrl,
+} from "@/lib/firebase";
 
 const AuthContext = createContext(null);
 let currentUser = null;
 
-function mapFirebaseUser(firebaseUser, profileData = {}) {
+function mapFirebaseUser(firebaseUser, profileData = {}, authClaims = {}) {
   if (!firebaseUser) return null;
+  const role = authClaims.role || profileData.role || "student";
   return {
     ...firebaseUser,
-    email: firebaseUser.email,
-    phoneNumber: profileData.phoneNumber || firebaseUser.phoneNumber || "",
-    phoneVerified: Boolean(profileData.phoneVerified || firebaseUser.phoneNumber),
-    role: "student",
+    uid: firebaseUser.uid,
+    email: authClaims.email || profileData.email || firebaseUser.email || "",
+    auid: profileData.auid || authClaims.auid || "",
+    phoneNumber: profileData.phoneNumber || authClaims.phoneNumber || firebaseUser.phoneNumber || "",
+    phoneVerified: role === "student" && Boolean(profileData.phoneVerified || authClaims.phoneVerified || firebaseUser.phoneNumber),
+    role,
+    canteen_id: authClaims.canteenId || profileData.canteen_id || "",
+    canteen_name: authClaims.canteenName || profileData.canteen_name || "",
   };
+}
+
+function isStudentIdentity(value) {
+  return value?.role === "student";
+}
+
+function isStaffIdentity(value) {
+  return value?.role === "canteen_staff";
 }
 
 function normalizePhoneNumber(phoneNumber) {
@@ -37,6 +57,30 @@ function normalizePhoneNumber(phoneNumber) {
   }
 
   return `+91${rawValue}`;
+}
+
+function normalizeStudentAuid(auid) {
+  return (auid || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
+}
+
+function deriveStudentAuidFromEmail(email) {
+  return normalizeStudentAuid((email || "").trim().split("@")[0] || "");
+}
+
+async function readFirebaseAuthClaims(firebaseUser) {
+  if (!firebaseUser) {
+    return {};
+  }
+
+  try {
+    const result = await getIdTokenResult(firebaseUser);
+    return result?.claims || {};
+  } catch (error) {
+    debugFirebaseLog("Unable to read Firebase auth claims", {
+      message: error?.message || String(error),
+    });
+    return {};
+  }
 }
 
 function setupRecaptcha(authInstance, containerId = "recaptcha-container") {
@@ -62,11 +106,42 @@ export function AuthProvider({ children }) {
   const pendingPhoneNumberRef = useRef("");
   const otpBypassEnabled = process.env.REACT_APP_FIREBASE_TEST_OTP_BYPASS === "true";
 
-  const applyFirebaseUser = useCallback((firebaseUser, profileData = {}) => {
-    const normalizedUser = mapFirebaseUser(firebaseUser, profileData);
+  const saveStudentProfile = useCallback(async (firebaseUser, profileData = {}) => {
+    if (!firebaseUser?.uid) {
+      return;
+    }
+
+    const update = {
+      email: firebaseUser.email || "",
+      updatedAt: serverTimestamp(),
+    };
+
+    const normalizedAuid = normalizeStudentAuid(profileData.auid);
+    if (normalizedAuid) {
+      update.auid = normalizedAuid;
+    }
+
+    if (typeof profileData.phoneNumber === "string" && profileData.phoneNumber) {
+      update.phoneNumber = profileData.phoneNumber;
+    }
+
+    if (typeof profileData.phoneVerified === "boolean") {
+      update.phoneVerified = profileData.phoneVerified;
+    }
+
+    await setDoc(doc(db, "users", firebaseUser.uid), update, { merge: true });
+  }, []);
+
+  const applyFirebaseUser = useCallback(async (firebaseUser, profileData = {}, authClaimsOverride = null) => {
+    const authClaims = authClaimsOverride || await readFirebaseAuthClaims(firebaseUser);
+    const normalizedUser = mapFirebaseUser(firebaseUser, profileData, authClaims);
     currentUser = normalizedUser;
     setResolvedCurrentUser(normalizedUser);
-    console.log("[Auth] auth state changed", normalizedUser);
+    debugFirebaseLog("Auth state changed", {
+      uid: normalizedUser?.uid || "",
+      role: normalizedUser?.role || "",
+      canteenId: normalizedUser?.canteen_id || "",
+    });
 
     if (!localStorage.getItem('campusbite_token')) {
       setUser(normalizedUser);
@@ -75,9 +150,142 @@ export function AuthProvider({ children }) {
     return normalizedUser;
   }, []);
 
+  const applyBackendStudentSession = useCallback((sessionData) => {
+    if (!sessionData?.token || !sessionData?.user) {
+      return null;
+    }
+
+    localStorage.setItem("campusbite_token", sessionData.token);
+    const backendUser = {
+      ...sessionData.user,
+      role: "student",
+    };
+    setUser(backendUser);
+    return backendUser;
+  }, []);
+
+  const loginBackendStudentSession = useCallback(async (email, password) => {
+    const { data } = await API.post("/auth/student/login", { email, password });
+    return applyBackendStudentSession(data);
+  }, [applyBackendStudentSession]);
+
+  const registerBackendStudentAccount = useCallback(async ({ email, password, auid, phone }) => {
+    await API.post("/auth/register", {
+      email,
+      password,
+      auid,
+      phone: phone || "",
+    });
+  }, []);
+
+  const ensureStaffFirebaseSession = useCallback(async (staffUser, backendTokenOverride = "") => {
+    if (!isStaffIdentity(staffUser)) {
+      return false;
+    }
+
+    if (isStaffIdentity(currentUser) && currentUser.canteen_id === staffUser.canteen_id) {
+      return true;
+    }
+
+    const backendToken = backendTokenOverride || localStorage.getItem("campusbite_token") || "";
+    if (!backendToken) {
+      return false;
+    }
+
+    try {
+      debugFirebaseLog("Exchanging Firebase staff session", {
+        canteenId: staffUser.canteen_id || "",
+      });
+
+      const response = await fetch(getFirebaseFunctionUrl("exchangeStaffSession"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${backendToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        throw new Error(errorPayload.error || "Unable to exchange staff Firebase session");
+      }
+
+      const payload = await response.json();
+      await signInWithCustomToken(auth, payload.customToken);
+      debugFirebaseLog("Firebase staff session established", {
+        canteenId: staffUser.canteen_id || "",
+      });
+      return true;
+    } catch (error) {
+      console.error("Firebase staff session bootstrap failed:", error);
+      return false;
+    }
+  }, []);
+
+  const bootstrapTemporaryStudentSession = useCallback(async ({ email, auid }) => {
+    const effectiveAuid = normalizeStudentAuid(auid) || deriveStudentAuidFromEmail(email);
+    if (!effectiveAuid) {
+      return null;
+    }
+
+    const { data } = await API.post("/auth/student/temporary-login", {
+      auid: effectiveAuid,
+    });
+    return applyBackendStudentSession(data);
+  }, [applyBackendStudentSession]);
+
+  const ensureBackendStudentSession = useCallback(async ({
+    email,
+    password,
+    auid,
+    phone,
+    mode = "login",
+  } = {}) => {
+    if (localStorage.getItem("campusbite_token")) {
+      return true;
+    }
+
+    const normalizedEmail = (email || "").trim().toLowerCase();
+    const normalizedAuid = normalizeStudentAuid(auid) || deriveStudentAuidFromEmail(normalizedEmail);
+
+    if (mode === "register" && normalizedEmail && password && normalizedAuid) {
+      try {
+        await registerBackendStudentAccount({
+          email: normalizedEmail,
+          password,
+          auid: normalizedAuid,
+          phone,
+        });
+      } catch (error) {
+        if (error?.response?.status !== 400) {
+          console.error("[Auth] backend student register failed", error);
+        }
+      }
+    }
+
+    if (normalizedEmail && password) {
+      try {
+        await loginBackendStudentSession(normalizedEmail, password);
+        return true;
+      } catch (error) {
+        console.error("[Auth] backend student login failed", error);
+      }
+    }
+
+    try {
+      const temporarySession = await bootstrapTemporaryStudentSession({
+        email: normalizedEmail,
+        auid: normalizedAuid,
+      });
+      return Boolean(temporarySession);
+    } catch (error) {
+      console.error("[Auth] temporary student session bootstrap failed", error);
+      return false;
+    }
+  }, [bootstrapTemporaryStudentSession, loginBackendStudentSession, registerBackendStudentAccount]);
+
   useEffect(() => {
     const token = localStorage.getItem('campusbite_token');
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       firebaseUserRef.current = firebaseUser;
 
       if (profileUnsubscribeRef.current) {
@@ -86,7 +294,14 @@ export function AuthProvider({ children }) {
       }
 
       if (!firebaseUser) {
-        applyFirebaseUser(null);
+        void applyFirebaseUser(null);
+        setLoading(false);
+        return;
+      }
+
+      const authClaims = await readFirebaseAuthClaims(firebaseUser);
+      if (authClaims.role === "canteen_staff") {
+        await applyFirebaseUser(firebaseUser, {}, authClaims);
         setLoading(false);
         return;
       }
@@ -94,11 +309,26 @@ export function AuthProvider({ children }) {
       profileUnsubscribeRef.current = onSnapshot(
         doc(db, "users", firebaseUser.uid),
         (snapshot) => {
-          applyFirebaseUser(firebaseUser, snapshot.exists() ? snapshot.data() : {});
+          const profileData = snapshot.exists() ? snapshot.data() : {};
+          void applyFirebaseUser(firebaseUser, profileData, authClaims);
+          if (!localStorage.getItem("campusbite_token")) {
+            void ensureBackendStudentSession({
+              email: firebaseUser.email || "",
+              auid: profileData.auid || "",
+              phone: profileData.phoneNumber || "",
+              mode: "bootstrap",
+            });
+          }
           setLoading(false);
         },
         () => {
-          applyFirebaseUser(firebaseUser);
+          void applyFirebaseUser(firebaseUser, {}, authClaims);
+          if (!localStorage.getItem("campusbite_token")) {
+            void ensureBackendStudentSession({
+              email: firebaseUser.email || "",
+              mode: "bootstrap",
+            });
+          }
           setLoading(false);
         },
       );
@@ -106,10 +336,12 @@ export function AuthProvider({ children }) {
 
     if (token) {
       API.get('/auth/me')
-        .then(res => setUser(res.data))
+        .then((res) => {
+          setUser(res.data);
+        })
         .catch(() => {
           localStorage.removeItem('campusbite_token');
-          setUser(currentUser);
+          setUser(isStudentIdentity(currentUser) ? currentUser : null);
         })
         .finally(() => setLoading(false));
     }
@@ -120,10 +352,26 @@ export function AuthProvider({ children }) {
         profileUnsubscribeRef.current();
       }
     };
-  }, [applyFirebaseUser]); // Empty deps is correct - only runs once on mount
+  }, [applyFirebaseUser, ensureBackendStudentSession]); // Empty deps is correct - only runs once on mount
 
   useEffect(() => {
-    console.log("[Auth] currentUser value", resolvedCurrentUser);
+    if (loading || !isStaffIdentity(user)) {
+      return;
+    }
+
+    if (isStaffIdentity(resolvedCurrentUser) && resolvedCurrentUser.canteen_id === user.canteen_id) {
+      return;
+    }
+
+    void ensureStaffFirebaseSession(user);
+  }, [ensureStaffFirebaseSession, loading, resolvedCurrentUser, user]);
+
+  useEffect(() => {
+    debugFirebaseLog("Resolved currentUser value", {
+      uid: resolvedCurrentUser?.uid || "",
+      role: resolvedCurrentUser?.role || "",
+      canteenId: resolvedCurrentUser?.canteen_id || "",
+    });
   }, [resolvedCurrentUser]);
 
   const studentLogin = useCallback(async (email, password) => {
@@ -135,28 +383,50 @@ export function AuthProvider({ children }) {
     try {
       const res = await signInWithEmailAndPassword(auth, normalizedEmail, password);
       firebaseUserRef.current = res.user;
-      applyFirebaseUser(res.user);
+      await ensureBackendStudentSession({
+        email: normalizedEmail,
+        password,
+        mode: "login",
+      });
+      await applyFirebaseUser(res.user);
       return res.user;
     } catch (err) {
       throw new Error("Email or password is incorrect");
     }
-  }, [applyFirebaseUser]);
+  }, [applyFirebaseUser, ensureBackendStudentSession]);
 
-  const registerStudent = useCallback(async (email, password) => {
+  const registerStudent = useCallback(async (email, password, profile = {}) => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail.endsWith("@acharya.ac.in")) {
       throw new Error("Use your @acharya.ac.in email address");
     }
 
+    const normalizedAuid = normalizeStudentAuid(profile.auid);
+    if (!normalizedAuid) {
+      throw new Error("AUID is required");
+    }
+
     try {
       const res = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
       firebaseUserRef.current = res.user;
-      applyFirebaseUser(res.user);
+      await saveStudentProfile(res.user, {
+        auid: normalizedAuid,
+        phoneNumber: profile.phoneNumber || "",
+        phoneVerified: false,
+      });
+      await ensureBackendStudentSession({
+        email: normalizedEmail,
+        password,
+        auid: normalizedAuid,
+        phone: profile.phoneNumber || "",
+        mode: "register",
+      });
+      await applyFirebaseUser(res.user);
       return res.user;
     } catch (err) {
       throw new Error("User already exists. Please sign in");
     }
-  }, [applyFirebaseUser]);
+  }, [applyFirebaseUser, ensureBackendStudentSession, saveStudentProfile]);
 
   const resetStudentPassword = useCallback(async (email) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -244,7 +514,7 @@ export function AuthProvider({ children }) {
           updatedAt: serverTimestamp(),
         }, { merge: true });
 
-        applyFirebaseUser(firebaseUserRef.current, {
+        await applyFirebaseUser(firebaseUserRef.current, {
           phoneNumber: pendingPhoneNumberRef.current,
           phoneVerified: true,
         });
@@ -269,7 +539,7 @@ export function AuthProvider({ children }) {
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
-      applyFirebaseUser(firebaseUserRef.current, {
+      await applyFirebaseUser(firebaseUserRef.current, {
         phoneNumber: pendingPhoneNumberRef.current,
         phoneVerified: true,
       });
@@ -296,8 +566,9 @@ export function AuthProvider({ children }) {
     const { data } = await API.post('/auth/staff/login', { email, password });
     localStorage.setItem('campusbite_token', data.token);
     setUser(data.user);
+    void ensureStaffFirebaseSession(data.user, data.token);
     return data;
-  }, [setUser]);
+  }, [ensureStaffFirebaseSession, setUser]);
 
   const adminLogin = useCallback(async (email, password) => {
     const { data } = await API.post('/auth/admin/login', { email, password });

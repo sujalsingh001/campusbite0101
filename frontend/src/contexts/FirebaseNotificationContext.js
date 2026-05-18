@@ -4,9 +4,12 @@ import { getToken, onMessage } from "firebase/messaging";
 import { useAuth } from "@/contexts/AuthContext";
 import { getFirebaseMessaging } from "@/lib/firebase";
 import {
-  saveUserNotificationToken,
-  subscribeToUserOrders,
-} from "@/lib/firestoreOrders";
+  getOrderDataSource,
+  ORDER_SOURCES,
+  saveOrderNotificationToken,
+  subscribeToStudentOrders,
+} from "@/lib/ordersDataSource";
+import API, { getApiUrl } from "@/lib/api";
 
 const NotificationContext = createContext(null);
 
@@ -18,6 +21,17 @@ const STATUS_MESSAGES = {
 
 function buildOrderUrl(orderId) {
   return `/student/order/${orderId}`;
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
+  }
+  return outputArray;
 }
 
 async function showBrowserNotification(registration, order) {
@@ -83,12 +97,25 @@ function readMessagePayload(payload) {
 
 export function NotificationProvider({ children }) {
   const { user, currentUser, loading } = useAuth();
-  const activeUser = currentUser || (user?.role === "student" ? user : null);
+  const activeUser = currentUser?.role === "student"
+    ? currentUser
+    : (user?.role === "student" ? user : null);
   const serviceWorkerRef = useRef(null);
   const orderStatusesRef = useRef(new Map());
+  const eventSourceRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const pushSubscribedRef = useRef(false);
+  const orderSource = getOrderDataSource({
+    role: activeUser?.role || user?.role,
+    firebaseUid: activeUser?.uid,
+  });
 
   useEffect(() => {
-    if (loading || !activeUser?.uid || typeof window === "undefined") {
+    if (loading || typeof window === "undefined") {
+      return undefined;
+    }
+
+    if (orderSource !== ORDER_SOURCES.FIREBASE || !activeUser?.uid) {
       return undefined;
     }
 
@@ -114,7 +141,7 @@ export function NotificationProvider({ children }) {
         }
       }
 
-      await saveUserNotificationToken(activeUser.uid, {
+      await saveOrderNotificationToken(activeUser, {
         email: activeUser.email || "",
         notificationPermission: permission,
         notificationPermissionAt: new Date().toISOString(),
@@ -134,7 +161,7 @@ export function NotificationProvider({ children }) {
           });
 
           if (!cancelled && fcmToken) {
-            await saveUserNotificationToken(activeUser.uid, {
+            await saveOrderNotificationToken(activeUser, {
               email: activeUser.email || "",
               fcmToken,
               notificationPermission: permission,
@@ -171,7 +198,116 @@ export function NotificationProvider({ children }) {
       cancelled = true;
       unsubscribeMessage();
     };
-  }, [activeUser?.email, activeUser?.uid, loading]);
+  }, [activeUser, activeUser?.email, activeUser?.uid, loading, orderSource]);
+
+  useEffect(() => {
+    if (loading || orderSource !== ORDER_SOURCES.RAILWAY) {
+      return undefined;
+    }
+
+    if (!user || user.role !== "student") {
+      return undefined;
+    }
+
+    const token = localStorage.getItem("campusbite_token");
+    if (!token) {
+      return undefined;
+    }
+
+    const connectSSE = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+
+      const url = `${getApiUrl("/notifications/stream")}?token=${encodeURIComponent(token)}`;
+      const eventSource = new EventSource(url);
+      eventSourceRef.current = eventSource;
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "connected") {
+            return;
+          }
+
+          if (data.type !== "order_status") {
+            return;
+          }
+
+          notifyOrderStatus(serviceWorkerRef.current, {
+            orderId: data.order_id,
+            tokenNumber: data.token_number,
+            status: (data.status || "").toLowerCase() === "ready" ? "completed" : (data.status || "").toLowerCase(),
+            canteenName: data.canteen_name || "",
+          });
+        } catch (error) {
+          console.error("Notification parse error:", error);
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        eventSourceRef.current = null;
+        reconnectTimerRef.current = window.setTimeout(connectSSE, 3000);
+      };
+    };
+
+    const subscribeToPush = async () => {
+      if (pushSubscribedRef.current) {
+        return;
+      }
+
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        return;
+      }
+
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          return;
+        }
+
+        const registration = await navigator.serviceWorker.register("/sw.js");
+        await navigator.serviceWorker.ready;
+        serviceWorkerRef.current = registration;
+
+        const vapidKey = process.env.REACT_APP_VAPID_PUBLIC_KEY;
+        if (!vapidKey) {
+          return;
+        }
+
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          });
+        }
+
+        await API.post("/push/subscribe", {
+          subscription: subscription.toJSON(),
+        });
+
+        pushSubscribedRef.current = true;
+      } catch (error) {
+        console.error("Push subscription failed:", error);
+      }
+    };
+
+    connectSSE();
+    void subscribeToPush();
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+  }, [loading, orderSource, user]);
 
   useEffect(() => {
     if (loading || !activeUser?.uid) {
@@ -180,8 +316,8 @@ export function NotificationProvider({ children }) {
 
     orderStatusesRef.current = new Map();
 
-    const unsubscribe = subscribeToUserOrders(
-      activeUser.uid,
+    const unsubscribe = subscribeToStudentOrders(
+      activeUser,
       (orders) => {
         const nextStatuses = new Map();
 
@@ -205,7 +341,7 @@ export function NotificationProvider({ children }) {
       orderStatusesRef.current = new Map();
       unsubscribe();
     };
-  }, [activeUser?.uid, loading]);
+  }, [activeUser?.role, activeUser?.uid, loading]);
 
   const value = useMemo(() => ({}), []);
 
