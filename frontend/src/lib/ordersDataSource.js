@@ -331,6 +331,10 @@ function createFirebaseSubscriptionWithRailwayFallback(filters, onData, onError,
 }
 
 export function getOrderDataSource({ role, firebaseUid, canteenId = "" } = {}) {
+  if (role === "student" && hasBackendToken()) {
+    return ORDER_SOURCES.RAILWAY;
+  }
+
   if (USE_FIREBASE_ORDERS) {
     if (role === "canteen_staff" && (!firebaseUid || !canteenId) && USE_RAILWAY_FALLBACK) {
       return ORDER_SOURCES.RAILWAY;

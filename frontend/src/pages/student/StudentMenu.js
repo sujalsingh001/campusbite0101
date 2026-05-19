@@ -29,6 +29,7 @@ export default function StudentMenu() {
 
   useEffect(() => {
     if (!activeCanteen) return;
+    setSelectedCategory("all");
     API.get(`/canteens/${activeCanteen}/menu`).then(res => setMenuItems(res.data)).catch(console.error);
   }, [activeCanteen]);
 

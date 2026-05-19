@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import API from "@/lib/api";
-import { saveUserOrder } from "@/lib/firestoreOrders";
+import { createStudentOrder } from "@/lib/ordersDataSource";
 
 export default function StudentCart() {
   const QR_EXPIRY_SECONDS = 4 * 60;
@@ -74,7 +74,9 @@ export default function StudentCart() {
     }
   }, [canteenId, total, refId]);
 
-  const activeUser = currentUser || (user?.role === "student" ? user : null);
+  const activeUser = currentUser?.role === "student"
+    ? currentUser
+    : (user?.role === "student" ? user : null);
 
   useEffect(() => {
     if (!loading && !activeUser) {
@@ -176,7 +178,7 @@ export default function StudentCart() {
     try {
       const transactionId = paymentMethod === "qr" ? utr.trim() : "N/A";
       const tokenNumber = (refId || Date.now().toString()).slice(-4).toUpperCase();
-      const orderId = await saveUserOrder(activeUser.uid, {
+      const { orderId } = await createStudentOrder(activeUser, {
         userEmail: activeUser.email || "",
         phoneNumber: activeUser.phoneNumber || "",
         itemName: items.map((item) => item.name).join(", "),
@@ -195,6 +197,9 @@ export default function StudentCart() {
         })),
         tokenNumber,
         paymentMethod: paymentMethod || "none",
+        paymentSessionId: refId,
+        paymentSessionStartedAt: qrSessionStartedAt,
+        refId,
       });
       clearCart();
       closeQrModal();
@@ -300,8 +305,8 @@ export default function StudentCart() {
 
       {/* QR Code Modal */}
       {showQR && (
-        <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-5" onClick={closeQrModal}>
-          <div className="card-brutal max-w-sm w-full p-6 space-y-4 relative" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-start justify-center overflow-y-auto p-5 sm:items-center" onClick={closeQrModal}>
+          <div className="card-brutal relative max-h-[calc(100dvh-2.5rem)] w-full max-w-sm overflow-y-auto p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <button onClick={closeQrModal} className="absolute top-4 right-4 w-8 h-8 bg-gray-200 border-2 border-black rounded-lg flex items-center justify-center btn-brutal">
               <X className="w-5 h-5" strokeWidth={2.5} />
             </button>
