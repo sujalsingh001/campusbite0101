@@ -177,7 +177,7 @@ export default function StudentCart() {
     setError("");
     try {
       // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',location:'StudentCart.js:handlePlaceOrder',message:'Place order clicked',data:{paymentMethod,activeUid:activeUser?.uid||'',activeId:activeUser?.id||'',hasBackendToken:Boolean(localStorage.getItem('campusbite_token')),canteenId:canteenId||''},timestamp:Date.now(),hypothesisId:'A,B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'StudentCart.js:handlePlaceOrder',message:'Place order clicked',data:{paymentMethod,activeUid:activeUser?.uid||'',activeId:activeUser?.id||'',hasBackendToken:Boolean(localStorage.getItem('campusbite_token')),canteenId:canteenId||''},timestamp:Date.now(),hypothesisId:'A,B'})}).catch(()=>{});
       // #endregion
       const transactionId = paymentMethod === "qr" ? utr.trim() : "N/A";
       const tokenNumber = (refId || Date.now().toString()).slice(-4).toUpperCase();
@@ -209,6 +209,9 @@ export default function StudentCart() {
       setUtr("");
       navigate(`/student/order/${orderId}`);
     } catch (err) {
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'StudentCart.js:handlePlaceOrder:error',message:'Place order failed',data:{errorMessage:err?.message||String(err),code:err?.code||''},timestamp:Date.now(),hypothesisId:'A,C,D,E'})}).catch(()=>{});
+      // #endregion
       setError(err.message || err.response?.data?.message || err.response?.data?.detail || "Failed to place order");
     } finally {
       setPlacing(false);
