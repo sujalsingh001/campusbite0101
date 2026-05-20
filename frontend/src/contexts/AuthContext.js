@@ -141,7 +141,7 @@ export function AuthProvider({ children }) {
       canteenId: normalizedUser?.canteen_id || "",
     });
 
-    if (!localStorage.getItem('campusbite_token')) {
+    if (!localStorage.getItem("campusbite_token")) {
       setUser(normalizedUser);
     }
 
@@ -150,6 +150,11 @@ export function AuthProvider({ children }) {
 
   const applyBackendStudentSession = useCallback((sessionData) => {
     if (!sessionData?.token || !sessionData?.user) {
+      return null;
+    }
+
+    const sessionEmail = (sessionData.user.email || "").toLowerCase();
+    if (sessionEmail.includes("@temporary.local")) {
       return null;
     }
 
@@ -202,22 +207,6 @@ export function AuthProvider({ children }) {
     const normalizedEmail = (email || "").trim().toLowerCase();
     const normalizedAuid = normalizeStudentAuid(auid) || deriveStudentAuidFromEmail(normalizedEmail);
 
-    if (mode !== "register") {
-      try {
-        const temporarySession = await bootstrapTemporaryStudentSession({
-          email: normalizedEmail,
-          auid: normalizedAuid,
-        });
-        if (temporarySession) {
-          return true;
-        }
-      } catch (error) {
-        debugFirebaseLog("Temporary student session bootstrap failed before password login", {
-          status: error?.response?.status || "",
-        });
-      }
-    }
-
     if (mode === "register" && normalizedEmail && password && normalizedAuid) {
       try {
         await registerBackendStudentAccount({
@@ -238,26 +227,29 @@ export function AuthProvider({ children }) {
         await loginBackendStudentSession(normalizedEmail, password);
         return true;
       } catch (error) {
-        debugFirebaseLog("Backend student password login failed, falling back to temporary session", {
+        debugFirebaseLog("Backend student password login failed", {
           status: error?.response?.status || "",
         });
+        if (mode === "login") {
+          return false;
+        }
       }
     }
 
-    try {
-      if (mode !== "register") {
+    if (mode === "bootstrap" && normalizedAuid) {
+      try {
+        const temporarySession = await bootstrapTemporaryStudentSession({
+          email: normalizedEmail,
+          auid: normalizedAuid,
+        });
+        return Boolean(temporarySession);
+      } catch (error) {
+        console.error("[Auth] temporary student session bootstrap failed", error);
         return false;
       }
-
-      const temporarySession = await bootstrapTemporaryStudentSession({
-        email: normalizedEmail,
-        auid: normalizedAuid,
-      });
-      return Boolean(temporarySession);
-    } catch (error) {
-      console.error("[Auth] temporary student session bootstrap failed", error);
-      return false;
     }
+
+    return false;
   }, [bootstrapTemporaryStudentSession, loginBackendStudentSession, registerBackendStudentAccount]);
 
   useEffect(() => {
@@ -314,7 +306,12 @@ export function AuthProvider({ children }) {
     if (token) {
       API.get('/auth/me')
         .then((res) => {
-          setUser(res.data);
+          const profile = res.data || {};
+          const profileEmail = (profile.email || "").toLowerCase();
+          if (profileEmail.includes("@temporary.local") && currentUser?.email?.endsWith("@acharya.ac.in")) {
+            return;
+          }
+          setUser(profile);
         })
         .catch(() => {
           localStorage.removeItem('campusbite_token');

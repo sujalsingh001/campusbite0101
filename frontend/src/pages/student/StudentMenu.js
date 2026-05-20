@@ -8,7 +8,8 @@ import API from "@/lib/api";
 
 export default function StudentMenu() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, currentUser, logout } = useAuth();
+  const greetingLabel = currentUser?.email || user?.email || user?.auid || "Student";
   const { addItem, removeItem, items: cartItems, count: cartCount, canteenId: cartCanteenId } = useCart();
 
   const [canteens, setCanteens] = useState([]);
@@ -65,7 +66,7 @@ export default function StudentMenu() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-gray-500" data-testid="greeting-text">
-                {user?.auid || "Student"}
+                {greetingLabel}
               </p>
               <h1 className="text-2xl font-black tracking-tight" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="menu-title">
                 What's cooking?

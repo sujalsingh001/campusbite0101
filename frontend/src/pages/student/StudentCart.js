@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import API from "@/lib/api";
-import { auth } from "@/lib/firebase";
 import { createStudentOrder } from "@/lib/ordersDataSource";
 
 export default function StudentCart() {
@@ -78,15 +77,6 @@ export default function StudentCart() {
   const activeUser = currentUser?.role === "student"
     ? currentUser
     : (user?.role === "student" ? user : null);
-  const checkoutUser = activeUser
-    ? {
-      ...activeUser,
-      uid: activeUser.uid || activeUser.id || auth.currentUser?.uid || "",
-      email: activeUser.email || auth.currentUser?.email || "",
-      auid: activeUser.auid || activeUser.studentAuid || "",
-    }
-    : null;
-
   useEffect(() => {
     if (!loading && !activeUser) {
       navigate("/student/login");
@@ -153,12 +143,11 @@ export default function StudentCart() {
       setError("Please wait, loading user...");
       return;
     }
-    if (!checkoutUser?.uid) {
-      console.log("[Auth] currentUser value during order", checkoutUser);
+    const orderUserId = activeUser?.uid || activeUser?.id;
+    if (!orderUserId && !activeUser?.email) {
       setError("Login required");
       return;
     }
-    console.log("[Auth] currentUser value during order", checkoutUser);
     
     // Validate UTR if QR payment selected
     if (paymentMethod === "qr") {
@@ -187,9 +176,9 @@ export default function StudentCart() {
     try {
       const transactionId = paymentMethod === "qr" ? utr.trim() : "N/A";
       const tokenNumber = (refId || Date.now().toString()).slice(-4).toUpperCase();
-      const { orderId } = await createStudentOrder(checkoutUser, {
-        userEmail: checkoutUser.email || "",
-        phoneNumber: checkoutUser.phoneNumber || "",
+      const { orderId } = await createStudentOrder(activeUser, {
+        userEmail: activeUser.email || "",
+        phoneNumber: activeUser.phoneNumber || "",
         itemName: items.map((item) => item.name).join(", "),
         quantity: items.reduce((sum, item) => sum + item.qty, 0),
         totalAmount: total,

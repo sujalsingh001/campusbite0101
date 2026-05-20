@@ -60,40 +60,27 @@ function deriveStudentAuidFromEmail(email) {
   return (email || "").trim().split("@")[0].toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
 }
 
-async function ensureStudentBackendTokenForCheckout(activeUser) {
-  if (hasBackendToken()) {
-    return true;
+function isCollegeEmail(email) {
+  return (email || "").trim().toLowerCase().endsWith("@acharya.ac.in");
+}
+
+function isTemporaryBackendEmail(email) {
+  return (email || "").toLowerCase().includes("@temporary.local");
+}
+
+function clearInvalidBackendToken(activeUser) {
+  if (!hasBackendToken()) {
+    return;
   }
 
-  const email = activeUser?.email || auth.currentUser?.email || "";
-  const auid = (
-    activeUser?.auid
-    || activeUser?.studentAuid
-    || deriveStudentAuidFromEmail(email)
+  const sessionEmail = (
+    activeUser?.email
+    || auth.currentUser?.email
     || ""
-  ).trim();
+  ).toLowerCase();
 
-  if (!auid) {
-    return false;
-  }
-
-  try {
-    const response = await API.post("/auth/student/temporary-login", { auid });
-    const token = response.data?.token;
-    if (!token || typeof window === "undefined") {
-      return Boolean(token);
-    }
-
-    localStorage.setItem("campusbite_token", token);
-    debugFirebaseLog("Checkout backend session bootstrapped", { auid });
-    return true;
-  } catch (error) {
-    debugFirebaseLog("Checkout backend session bootstrap failed", {
-      auid,
-      status: error?.response?.status || "",
-      message: error?.message || String(error),
-    });
-    return false;
+  if (isTemporaryBackendEmail(sessionEmail)) {
+    localStorage.removeItem("campusbite_token");
   }
 }
 
@@ -565,33 +552,46 @@ export function subscribeToCanteenOrders(activeUser, onData, onError) {
 }
 
 export async function createStudentOrder(activeUser, order) {
-  await ensureStudentBackendTokenForCheckout(activeUser);
-  const checkoutEmail = activeUser?.email || auth.currentUser?.email || "";
+  clearInvalidBackendToken(activeUser);
+
+  const checkoutEmail = (
+    activeUser?.email
+    || auth.currentUser?.email
+    || order.userEmail
+    || ""
+  ).trim().toLowerCase();
   const checkoutAuid = (
     activeUser?.auid
     || activeUser?.studentAuid
     || deriveStudentAuidFromEmail(checkoutEmail)
     || ""
   );
+  const firebaseUid = auth.currentUser?.uid || activeUser?.uid || "";
+  const orderPayload = {
+    ...order,
+    userId: order.userId || firebaseUid || activeUser?.id || "",
+    userEmail: order.userEmail || checkoutEmail,
+    phoneNumber: order.phoneNumber || activeUser?.phoneNumber || "",
+    studentAuid: order.studentAuid || checkoutAuid,
+  };
 
-  if (!hasBackendToken()) {
-    throw new Error("Checkout session unavailable. Please log out and sign in again.");
-  }
-
-  return createOrder(
-    {
-      ...order,
-      userId: order.userId || activeUser?.uid || auth.currentUser?.uid || "",
-      userEmail: order.userEmail || checkoutEmail,
-      phoneNumber: order.phoneNumber || activeUser?.phoneNumber || "",
-      studentAuid: order.studentAuid || checkoutAuid,
-    },
-    {
+  if (hasBackendToken() && isCollegeEmail(checkoutEmail)) {
+    return createOrder(orderPayload, {
       activeUser,
       role: "student",
       source: ORDER_SOURCES.RAILWAY,
-    },
-  );
+    });
+  }
+
+  if (firebaseUid && isCollegeEmail(checkoutEmail)) {
+    return createOrder(orderPayload, {
+      activeUser,
+      role: "student",
+      source: ORDER_SOURCES.FIREBASE,
+    });
+  }
+
+  throw new Error("Please log out and sign in again with your @acharya.ac.in email.");
 }
 
 export async function updateCanteenOrderStatus(activeUser, orderId, status) {
