@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, Package } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { subscribeToUserOrders } from "@/lib/firestoreOrders";
+import { subscribeToStudentOrders } from "@/lib/ordersDataSource";
 
 const statusConfig = {
   pending: { label: "Pending", color: "bg-yellow-300", badgeColor: "#FDE047", icon: Package },
@@ -31,8 +31,8 @@ export default function StudentOrders() {
       return undefined;
     }
 
-    const unsubscribe = subscribeToUserOrders(
-      activeUser.uid,
+    const unsubscribe = subscribeToStudentOrders(
+      activeUser,
       (data) => {
         setOrders(data);
         setError("");
