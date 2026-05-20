@@ -551,6 +551,42 @@ export function subscribeToCanteenOrders(activeUser, onData, onError) {
   return createRailwayRealtimeSubscription({}, onData, onError, role);
 }
 
+async function ensureStudentBackendTokenForCheckout(activeUser) {
+  if (hasBackendToken()) {
+    return true;
+  }
+
+  const email = activeUser?.email || auth.currentUser?.email || "";
+  const auid = (
+    activeUser?.auid
+    || activeUser?.studentAuid
+    || deriveStudentAuidFromEmail(email)
+    || ""
+  ).trim();
+
+  if (!auid) {
+    return false;
+  }
+
+  try {
+    const response = await API.post("/auth/student/temporary-login", { auid });
+    const token = response.data?.token;
+    if (token) {
+      localStorage.setItem("campusbite_token", token);
+      debugFirebaseLog("Checkout backend session bootstrapped", { auid });
+      return true;
+    }
+  } catch (error) {
+    debugFirebaseLog("Checkout backend session bootstrap failed", {
+      auid,
+      status: error?.response?.status || "",
+      message: error?.message || "",
+    });
+  }
+
+  return false;
+}
+
 export async function createStudentOrder(activeUser, order) {
   clearInvalidBackendToken(activeUser);
 
@@ -574,6 +610,12 @@ export async function createStudentOrder(activeUser, order) {
     phoneNumber: order.phoneNumber || activeUser?.phoneNumber || "",
     studentAuid: order.studentAuid || checkoutAuid,
   };
+
+  // Try to get a backend JWT if we don't have one — this routes orders through
+  // Railway (POST /api/orders) instead of Firestore, avoiding permission errors.
+  if (!hasBackendToken() && isCollegeEmail(checkoutEmail)) {
+    await ensureStudentBackendTokenForCheckout(activeUser);
+  }
 
   if (hasBackendToken() && isCollegeEmail(checkoutEmail)) {
     return createOrder(orderPayload, {
