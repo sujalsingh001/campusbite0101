@@ -188,9 +188,6 @@ export async function getOrders(filters = {}) {
 export async function createOrder(order) {
   const firebaseUid = auth.currentUser?.uid || "";
   const orderUserId = firebaseUid || order.userId || "";
-  // #region agent log
-  fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',location:'firestoreOrders.js:createOrder:entry',message:'Firebase createOrder entry',data:{firebaseUid,orderUserId,passedUserId:order?.userId||'',canteenId:order?.canteenId||'',hasAuth:Boolean(firebaseUid)},timestamp:Date.now(),hypothesisId:'B,E'})}).catch(()=>{});
-  // #endregion
   debugFirebaseLog("Creating Firebase order", {
     canteenId: order?.canteenId || "",
     userId: orderUserId,
@@ -224,17 +221,7 @@ export async function createOrder(order) {
     priority: Boolean(order.priority),
   };
 
-  try {
-    await setDoc(orderRef, orderDocData);
-    // #region agent log
-    fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',location:'firestoreOrders.js:createOrder:success',message:'Firebase order doc written',data:{orderId:orderRef.id,userId:orderUserId,status:orderDocData.status},timestamp:Date.now(),hypothesisId:'C,D'})}).catch(()=>{});
-    // #endregion
-  } catch (error) {
-    // #region agent log
-    fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',location:'firestoreOrders.js:createOrder:error',message:'Firebase order write failed',data:{code:error?.code||'',message:error?.message||String(error),userId:orderUserId},timestamp:Date.now(),hypothesisId:'C,D,E'})}).catch(()=>{});
-    // #endregion
-    throw error;
-  }
+  await setDoc(orderRef, orderDocData);
 
   if (orderUserId) {
     await setDoc(userDoc(orderUserId), {

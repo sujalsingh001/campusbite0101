@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import API from "@/lib/api";
+import { auth } from "@/lib/firebase";
 import { createStudentOrder } from "@/lib/ordersDataSource";
 
 export default function StudentCart() {
@@ -77,6 +78,14 @@ export default function StudentCart() {
   const activeUser = currentUser?.role === "student"
     ? currentUser
     : (user?.role === "student" ? user : null);
+  const checkoutUser = activeUser
+    ? {
+      ...activeUser,
+      uid: activeUser.uid || activeUser.id || auth.currentUser?.uid || "",
+      email: activeUser.email || auth.currentUser?.email || "",
+      auid: activeUser.auid || activeUser.studentAuid || "",
+    }
+    : null;
 
   useEffect(() => {
     if (!loading && !activeUser) {
@@ -144,12 +153,12 @@ export default function StudentCart() {
       setError("Please wait, loading user...");
       return;
     }
-    if (!activeUser?.uid) {
-      console.log("[Auth] currentUser value during order", activeUser);
+    if (!checkoutUser?.uid) {
+      console.log("[Auth] currentUser value during order", checkoutUser);
       setError("Login required");
       return;
     }
-    console.log("[Auth] currentUser value during order", activeUser);
+    console.log("[Auth] currentUser value during order", checkoutUser);
     
     // Validate UTR if QR payment selected
     if (paymentMethod === "qr") {
@@ -176,14 +185,11 @@ export default function StudentCart() {
     setPlacing(true);
     setError("");
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'StudentCart.js:handlePlaceOrder',message:'Place order clicked',data:{paymentMethod,activeUid:activeUser?.uid||'',activeId:activeUser?.id||'',hasBackendToken:Boolean(localStorage.getItem('campusbite_token')),canteenId:canteenId||''},timestamp:Date.now(),hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       const transactionId = paymentMethod === "qr" ? utr.trim() : "N/A";
       const tokenNumber = (refId || Date.now().toString()).slice(-4).toUpperCase();
-      const { orderId } = await createStudentOrder(activeUser, {
-        userEmail: activeUser.email || "",
-        phoneNumber: activeUser.phoneNumber || "",
+      const { orderId } = await createStudentOrder(checkoutUser, {
+        userEmail: checkoutUser.email || "",
+        phoneNumber: checkoutUser.phoneNumber || "",
         itemName: items.map((item) => item.name).join(", "),
         quantity: items.reduce((sum, item) => sum + item.qty, 0),
         totalAmount: total,
@@ -209,9 +215,6 @@ export default function StudentCart() {
       setUtr("");
       navigate(`/student/order/${orderId}`);
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'StudentCart.js:handlePlaceOrder:error',message:'Place order failed',data:{errorMessage:err?.message||String(err),code:err?.code||''},timestamp:Date.now(),hypothesisId:'A,C,D,E'})}).catch(()=>{});
-      // #endregion
       setError(err.message || err.response?.data?.message || err.response?.data?.detail || "Failed to place order");
     } finally {
       setPlacing(false);

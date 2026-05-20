@@ -1,5 +1,6 @@
 import API from "@/lib/api";
 import {
+  auth,
   debugFirebaseLog,
   useFirebaseOrders as firebaseUseFirebaseOrders,
   useRailwayFallback as firebaseUseRailwayFallback,
@@ -64,10 +65,11 @@ async function ensureStudentBackendTokenForCheckout(activeUser) {
     return true;
   }
 
+  const email = activeUser?.email || auth.currentUser?.email || "";
   const auid = (
     activeUser?.auid
     || activeUser?.studentAuid
-    || deriveStudentAuidFromEmail(activeUser?.email)
+    || deriveStudentAuidFromEmail(email)
     || ""
   ).trim();
 
@@ -423,10 +425,6 @@ export async function createOrder(order, options = {}) {
     firebaseUid: options.activeUser?.uid,
     canteenId: getActiveCanteenId(options.activeUser),
   });
-  // #region agent log
-  fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'ordersDataSource.js:createOrder',message:'Order create source selected',data:{source,hasBackendToken:hasBackendToken(),activeUid:options.activeUser?.uid||'',activeId:options.activeUser?.id||'',useFirebaseOrders:USE_FIREBASE_ORDERS,useRailwayFallback:USE_RAILWAY_FALLBACK},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
-
   if (source === ORDER_SOURCES.FIREBASE) {
     return withRailwayFallback(
       async () => {
@@ -567,21 +565,31 @@ export function subscribeToCanteenOrders(activeUser, onData, onError) {
 }
 
 export async function createStudentOrder(activeUser, order) {
-  const bootstrappedToken = await ensureStudentBackendTokenForCheckout(activeUser);
-  // #region agent log
-  fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'ordersDataSource.js:createStudentOrder',message:'Checkout session bootstrap',data:{bootstrappedToken,hasBackendToken:hasBackendToken(),activeUid:activeUser?.uid||'',activeEmail:activeUser?.email||''},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
+  await ensureStudentBackendTokenForCheckout(activeUser);
+  const checkoutEmail = activeUser?.email || auth.currentUser?.email || "";
+  const checkoutAuid = (
+    activeUser?.auid
+    || activeUser?.studentAuid
+    || deriveStudentAuidFromEmail(checkoutEmail)
+    || ""
+  );
+
+  if (!hasBackendToken()) {
+    throw new Error("Checkout session unavailable. Please log out and sign in again.");
+  }
+
   return createOrder(
     {
       ...order,
-      userId: order.userId || activeUser?.uid || "",
-      userEmail: order.userEmail || activeUser?.email || "",
+      userId: order.userId || activeUser?.uid || auth.currentUser?.uid || "",
+      userEmail: order.userEmail || checkoutEmail,
       phoneNumber: order.phoneNumber || activeUser?.phoneNumber || "",
-      studentAuid: order.studentAuid || activeUser?.auid || activeUser?.email || "",
+      studentAuid: order.studentAuid || checkoutAuid,
     },
     {
       activeUser,
       role: "student",
+      source: ORDER_SOURCES.RAILWAY,
     },
   );
 }
