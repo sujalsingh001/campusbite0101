@@ -1,0 +1,106 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function authTokenHas(field) {
+      return isSignedIn() && request.auth.token.keys().hasAny([field]);
+    }
+
+    function tokenRole() {
+      return authTokenHas("role") && request.auth.token.role is string
+        ? request.auth.token.role
+        : "";
+    }
+
+    function isStudent() {
+      return isSignedIn() && (
+        tokenRole() == "student"
+        || !authTokenHas("role")
+        || tokenRole() == ""
+      );
+    }
+
+    function isCanteenStaff() {
+      return isSignedIn() && tokenRole() == "canteen_staff";
+    }
+
+    function staffCanteenId() {
+      return authTokenHas("canteenId") && request.auth.token.canteenId is string
+        ? request.auth.token.canteenId
+        : (
+          authTokenHas("canteen_id") && request.auth.token.canteen_id is string
+            ? request.auth.token.canteen_id
+            : ""
+        );
+    }
+
+    function belongsToStudent(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function belongsToCanteen(canteenId) {
+      return isCanteenStaff() && staffCanteenId() == canteenId;
+    }
+
+    function hasAllowedOrderKeys() {
+      return request.resource.data.keys().hasOnly([
+        "id",
+        "orderId",
+        "userId",
+        "userEmail",
+        "phoneNumber",
+        "studentAuid",
+        "items",
+        "itemName",
+        "quantity",
+        "totalAmount",
+        "transactionId",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "canteenId",
+        "canteenName",
+        "tokenNumber",
+        "paymentMethod",
+        "paymentStatus",
+        "priority",
+      ]);
+    }
+
+    function isNewOrderPayload(orderId) {
+      return hasAllowedOrderKeys()
+        && request.resource.data.id == orderId
+        && request.resource.data.orderId == orderId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.canteenId is string
+        && request.resource.data.canteenName is string
+        && request.resource.data.items is list
+        && request.resource.data.quantity is number
+        && request.resource.data.totalAmount is number
+        && request.resource.data.itemName is string
+        && request.resource.data.transactionId is string
+        && request.resource.data.tokenNumber is string
+        && request.resource.data.paymentMethod is string
+        && request.resource.data.paymentStatus is string
+        && request.resource.data.priority == false
+        && request.resource.data.paymentStatus == ""
+        && request.resource.data.status in ["new", "pending", "placed"];
+    }
+
+    match /orders/{orderId} {
+      allow read: if resource != null
+        && (belongsToStudent(resource.data.userId) || belongsToCanteen(resource.data.canteenId));
+      allow create: if isStudent() && belongsToStudent(request.resource.data.userId) && isNewOrderPayload(orderId);
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /users/{userId} {
+      allow read, write: if belongsToStudent(userId);
+    }
+  }
+}

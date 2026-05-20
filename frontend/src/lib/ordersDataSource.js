@@ -383,6 +383,9 @@ export async function createOrder(order, options = {}) {
     firebaseUid: options.activeUser?.uid,
     canteenId: getActiveCanteenId(options.activeUser),
   });
+  // #region agent log
+  fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',location:'ordersDataSource.js:createOrder',message:'Order create source selected',data:{source,hasBackendToken:hasBackendToken(),activeUid:options.activeUser?.uid||'',activeId:options.activeUser?.id||'',useFirebaseOrders:USE_FIREBASE_ORDERS,useRailwayFallback:USE_RAILWAY_FALLBACK},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
 
   if (source === ORDER_SOURCES.FIREBASE) {
     return withRailwayFallback(
