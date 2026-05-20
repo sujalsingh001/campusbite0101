@@ -55,6 +55,46 @@ function hasBackendToken() {
   return Boolean(getBackendToken());
 }
 
+function deriveStudentAuidFromEmail(email) {
+  return (email || "").trim().split("@")[0].toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
+}
+
+async function ensureStudentBackendTokenForCheckout(activeUser) {
+  if (hasBackendToken()) {
+    return true;
+  }
+
+  const auid = (
+    activeUser?.auid
+    || activeUser?.studentAuid
+    || deriveStudentAuidFromEmail(activeUser?.email)
+    || ""
+  ).trim();
+
+  if (!auid) {
+    return false;
+  }
+
+  try {
+    const response = await API.post("/auth/student/temporary-login", { auid });
+    const token = response.data?.token;
+    if (!token || typeof window === "undefined") {
+      return Boolean(token);
+    }
+
+    localStorage.setItem("campusbite_token", token);
+    debugFirebaseLog("Checkout backend session bootstrapped", { auid });
+    return true;
+  } catch (error) {
+    debugFirebaseLog("Checkout backend session bootstrap failed", {
+      auid,
+      status: error?.response?.status || "",
+      message: error?.message || String(error),
+    });
+    return false;
+  }
+}
+
 function canUseRailwayFallback(options = {}) {
   if (!USE_RAILWAY_FALLBACK || !hasBackendToken()) {
     return false;
@@ -384,7 +424,7 @@ export async function createOrder(order, options = {}) {
     canteenId: getActiveCanteenId(options.activeUser),
   });
   // #region agent log
-  fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',location:'ordersDataSource.js:createOrder',message:'Order create source selected',data:{source,hasBackendToken:hasBackendToken(),activeUid:options.activeUser?.uid||'',activeId:options.activeUser?.id||'',useFirebaseOrders:USE_FIREBASE_ORDERS,useRailwayFallback:USE_RAILWAY_FALLBACK},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'ordersDataSource.js:createOrder',message:'Order create source selected',data:{source,hasBackendToken:hasBackendToken(),activeUid:options.activeUser?.uid||'',activeId:options.activeUser?.id||'',useFirebaseOrders:USE_FIREBASE_ORDERS,useRailwayFallback:USE_RAILWAY_FALLBACK},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
   // #endregion
 
   if (source === ORDER_SOURCES.FIREBASE) {
@@ -527,6 +567,10 @@ export function subscribeToCanteenOrders(activeUser, onData, onError) {
 }
 
 export async function createStudentOrder(activeUser, order) {
+  const bootstrappedToken = await ensureStudentBackendTokenForCheckout(activeUser);
+  // #region agent log
+  fetch('http://127.0.0.1:7258/ingest/9f77abff-04de-4752-8f54-f0c15a53fb3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b604a9'},body:JSON.stringify({sessionId:'b604a9',runId:'post-fix',location:'ordersDataSource.js:createStudentOrder',message:'Checkout session bootstrap',data:{bootstrappedToken,hasBackendToken:hasBackendToken(),activeUid:activeUser?.uid||'',activeEmail:activeUser?.email||''},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   return createOrder(
     {
       ...order,
