@@ -230,6 +230,34 @@ export function AuthProvider({ children }) {
         debugFirebaseLog("Backend student password login failed", {
           status: error?.response?.status || "",
         });
+
+        // Student exists in Firebase but not on backend — auto-register and retry.
+        if (mode === "login" && normalizedAuid) {
+          try {
+            await registerBackendStudentAccount({
+              email: normalizedEmail,
+              password,
+              auid: normalizedAuid,
+              phone: phone || "",
+            });
+          } catch (regError) {
+            // 400 means already registered (different password) — ignore.
+            if (regError?.response?.status !== 400) {
+              debugFirebaseLog("Backend auto-register failed", {
+                status: regError?.response?.status || "",
+              });
+            }
+          }
+
+          // Retry login after registration attempt.
+          try {
+            await loginBackendStudentSession(normalizedEmail, password);
+            return true;
+          } catch {
+            // Login still failed — continue to fallback below.
+          }
+        }
+
         if (mode === "login") {
           return false;
         }

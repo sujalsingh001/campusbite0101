@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Clock, Check, Package, Bell } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { subscribeToUserOrder } from "@/lib/firestoreOrders";
+import { subscribeToStudentOrder } from "@/lib/ordersDataSource";
 
 const STATUSES = [
   { key: "pending", label: "Order Pending", icon: Package, description: "Your order has been saved in history" },
@@ -31,8 +31,8 @@ export default function StudentOrder() {
       return undefined;
     }
 
-    const unsubscribe = subscribeToUserOrder(
-      activeUser.uid,
+    const unsubscribe = subscribeToStudentOrder(
+      activeUser,
       orderId,
       (data) => {
         setOrder(data);
