@@ -38,8 +38,12 @@ export default function StudentOrders() {
         setError("");
         setOrdersLoading(false);
       },
-      () => {
-        setError("Unable to load orders right now");
+      (err) => {
+        console.error("StudentOrders subscription error:", err);
+        const status = err?.response?.status;
+        if (status && status >= 400 && status < 600) {
+          setError("Unable to load orders right now");
+        }
         setOrdersLoading(false);
       },
     );
@@ -102,7 +106,7 @@ export default function StudentOrders() {
                 <button key={order.orderId} onClick={() => navigate(`/student/order/${order.orderId}`)} className="w-full card-brutal p-4 text-left hover:translate-y-[-2px] transition-all btn-brutal" data-testid={`order-card-${order.orderId}`}>
                   <div className="flex items-center gap-4">
                     <div className={`w-16 h-16 ${config.color} border-[3px] border-black rounded-xl flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]`}>
-                      <span className="text-2xl font-black" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>#{order.tokenNumber || order.orderId.slice(-4).toUpperCase()}</span>
+                      <span className="text-2xl font-black" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>#{order.tokenNumber || (order.orderId || "").slice(-4).toUpperCase()}</span>
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
@@ -132,7 +136,7 @@ export default function StudentOrders() {
               <div key={order.orderId} className="card-brutal-sm p-4 opacity-75" data-testid={`completed-order-${order.orderId}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-gray-100 border-2 border-gray-300 rounded-xl flex items-center justify-center">
-                    <span className="text-lg font-black text-gray-400" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>#{order.tokenNumber || order.orderId.slice(-4).toUpperCase()}</span>
+                    <span className="text-lg font-black text-gray-400" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>#{order.tokenNumber || (order.orderId || "").slice(-4).toUpperCase()}</span>
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">

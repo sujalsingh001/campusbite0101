@@ -19,6 +19,8 @@ export default function StudentOrder() {
   const { user, currentUser, loading } = useAuth();
   const [order, setOrder] = useState(null);
   const [orderLoading, setOrderLoading] = useState(true);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [retryTrigger, setRetryTrigger] = useState(0);
   const activeUser = currentUser || (user?.role === "student" ? user : null);
 
   useEffect(() => {
@@ -42,7 +44,39 @@ export default function StudentOrder() {
     );
 
     return unsubscribe;
-  }, [activeUser, loading, orderId]);
+  }, [activeUser, loading, orderId, retryTrigger]);
+
+  useEffect(() => {
+    let timer;
+    if (loading || orderLoading) {
+      timer = setTimeout(() => {
+        setLoadingTimeout(true);
+      }, 8000);
+    } else {
+      setLoadingTimeout(false);
+    }
+    return () => clearTimeout(timer);
+  }, [loading, orderLoading]);
+
+  const handleRetry = () => {
+    setLoadingTimeout(false);
+    setOrderLoading(true);
+    setRetryTrigger((prev) => prev + 1);
+  };
+
+  if (loadingTimeout && (loading || orderLoading)) {
+    return (
+      <div className="mobile-wrapper flex flex-col items-center justify-center min-h-screen p-6 text-center">
+        <div className="card-brutal p-6 bg-red-100 border-[3px] border-black rounded-xl mb-4 max-w-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+          <h2 className="text-xl font-black mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>Loading Timeout</h2>
+          <p className="text-sm font-semibold text-gray-700">The order details are taking too long to load. Please try again.</p>
+        </div>
+        <button onClick={handleRetry} className="btn-primary shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" data-testid="retry-btn">
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (loading || orderLoading) return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
 
@@ -57,7 +91,14 @@ export default function StudentOrder() {
     );
   }
 
-  if (!order) return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><p className="font-bold text-gray-500">Order not found</p></div>;
+  if (!order) {
+    return (
+      <div className="mobile-wrapper flex flex-col items-center justify-center min-h-screen p-6 text-center">
+        <p className="font-bold text-gray-500 mb-4" data-testid="order-not-found-msg">Order not found</p>
+        <button onClick={() => navigate("/student/menu")} className="btn-primary shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" data-testid="back-to-menu-btn">Back to Menu</button>
+      </div>
+    );
+  }
 
   const currentIdx = STATUSES.findIndex((status) => status.key === order.status);
   const getStatusColor = (key) => ({ pending: "bg-yellow-300", completed: "bg-lime-400" }[key] || "bg-gray-200");
@@ -81,7 +122,7 @@ export default function StudentOrder() {
           <div className="relative z-10">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-black/60 mb-1">Your Token</p>
             <h2 className="text-7xl font-black tracking-tighter leading-none" style={{ fontFamily: "'IBM Plex Mono', monospace" }} data-testid="token-number">
-              #{order.tokenNumber || order.orderId.slice(-4).toUpperCase()}
+              #{order.tokenNumber || (order.orderId || "").slice(-4).toUpperCase()}
             </h2>
             <div className="mt-3 inline-flex items-center gap-2">
               <span className="badge-brutal bg-white/80">

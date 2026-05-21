@@ -44,6 +44,8 @@ export default function StudentOrderRealtime() {
   const [orderLoading, setOrderLoading] = useState(true);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [retryTrigger, setRetryTrigger] = useState(0);
   const activeUser = currentUser?.role === "student"
     ? currentUser
     : (user?.role === "student" ? user : null);
@@ -71,53 +73,94 @@ export default function StudentOrderRealtime() {
     );
 
     return unsubscribe;
-  }, [activeUser, canLoadOrder, loading, orderId]);
+  }, [activeUser, canLoadOrder, loading, orderId, retryTrigger]);
 
   useEffect(() => {
-    if (!order?.createdAt) {
-      setSecondsLeft(0);
-      return undefined;
+    let timer;
+    if (loading || orderLoading) {
+      timer = setTimeout(() => {
+        setLoadingTimeout(true);
+      }, 8000);
+    } else {
+      setLoadingTimeout(false);
     }
+    return () => clearTimeout(timer);
+  }, [loading, orderLoading]);
 
-    if (!["new", "pending"].includes((order.status || "").toLowerCase())) {
-      setSecondsLeft(0);
-      return undefined;
-    }
+  const handleRetry = () => {
+    setLoadingTimeout(false);
+    setOrderLoading(true);
+    setRetryTrigger((prev) => prev + 1);
+  };
 
-    const updateSecondsLeft = () => {
-      const createdAtMs = order.createdAt instanceof Date
-        ? order.createdAt.getTime()
-        : new Date(order.createdAt).getTime();
-
-      if (Number.isNaN(createdAtMs)) {
+  useEffect(() => {
+    try {
+      if (!order?.createdAt) {
         setSecondsLeft(0);
-        return 0;
+        return undefined;
       }
 
-      const elapsedSeconds = Math.floor((Date.now() - createdAtMs) / 1000);
-      const nextSecondsLeft = Math.max(0, 120 - elapsedSeconds);
-      setSecondsLeft(nextSecondsLeft);
-      return nextSecondsLeft;
-    };
+      if (!["new", "pending"].includes((order.status || "").toLowerCase())) {
+        setSecondsLeft(0);
+        return undefined;
+      }
 
-    const initialSecondsLeft = updateSecondsLeft();
-    if (initialSecondsLeft <= 0) {
+      const updateSecondsLeft = () => {
+        try {
+          const createdAtMs = order.createdAt instanceof Date
+            ? order.createdAt.getTime()
+            : new Date(order.createdAt).getTime();
+
+          if (Number.isNaN(createdAtMs)) {
+            setSecondsLeft(0);
+            return 0;
+          }
+
+          const elapsedSeconds = Math.floor((Date.now() - createdAtMs) / 1000);
+          const nextSecondsLeft = Math.max(0, 120 - elapsedSeconds);
+          setSecondsLeft(nextSecondsLeft);
+          return nextSecondsLeft;
+        } catch (e) {
+          console.error("Error updating countdown seconds left:", e);
+          setSecondsLeft(0);
+          return 0;
+        }
+      };
+
+      const initialSecondsLeft = updateSecondsLeft();
+      if (initialSecondsLeft <= 0) {
+        return undefined;
+      }
+
+      const intervalId = window.setInterval(() => {
+        try {
+          const nextSecondsLeft = updateSecondsLeft();
+          if (nextSecondsLeft <= 0) {
+            window.clearInterval(intervalId);
+          }
+        } catch (e) {
+          console.error("Error in countdown timer interval:", e);
+          setSecondsLeft(0);
+          window.clearInterval(intervalId);
+        }
+      }, 1000);
+
+      return () => {
+        window.clearInterval(intervalId);
+      };
+    } catch (e) {
+      console.error("Error setting up countdown timer:", e);
+      setSecondsLeft(0);
       return undefined;
     }
-
-    const intervalId = window.setInterval(() => {
-      const nextSecondsLeft = updateSecondsLeft();
-      if (nextSecondsLeft <= 0) {
-        window.clearInterval(intervalId);
-      }
-    }, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
   }, [order?.createdAt, order?.status]);
 
-  const canCancelOrder = ["new", "pending"].includes((order?.status || "").toLowerCase()) && secondsLeft > 0;
+  let canCancelOrder = false;
+  try {
+    canCancelOrder = ["new", "pending"].includes((order?.status || "").toLowerCase()) && secondsLeft > 0;
+  } catch (e) {
+    canCancelOrder = false;
+  }
 
   const handleCancelOrder = async () => {
     if (!order?.orderId || !activeUser || isCancelling) {
@@ -145,6 +188,20 @@ export default function StudentOrderRealtime() {
     }
   };
 
+  if (loadingTimeout && (loading || orderLoading)) {
+    return (
+      <div className="mobile-wrapper flex flex-col items-center justify-center min-h-screen p-6 text-center">
+        <div className="card-brutal p-6 bg-red-100 border-[3px] border-black rounded-xl mb-4 max-w-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+          <h2 className="text-xl font-black mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>Loading Timeout</h2>
+          <p className="text-sm font-semibold text-gray-700">The order details are taking too long to load. Please try again.</p>
+        </div>
+        <button onClick={handleRetry} className="btn-primary shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" data-testid="retry-btn">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   if (loading || orderLoading) {
     return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><div className="animate-spin w-8 h-8 border-4 border-black border-t-lime-400 rounded-full" /></div>;
   }
@@ -161,7 +218,12 @@ export default function StudentOrderRealtime() {
   }
 
   if (!order) {
-    return <div className="mobile-wrapper flex items-center justify-center min-h-screen"><p className="font-bold text-gray-500">Order not found</p></div>;
+    return (
+      <div className="mobile-wrapper flex flex-col items-center justify-center min-h-screen p-6 text-center">
+        <p className="font-bold text-gray-500 mb-4" data-testid="order-not-found-msg">Order not found</p>
+        <button onClick={() => navigate("/student/menu")} className="btn-primary shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" data-testid="back-to-menu-btn">Back to Menu</button>
+      </div>
+    );
   }
 
   const statusSteps = order.status === "cancelled" ? CANCELLED_STATUSES : ACTIVE_STATUSES;
@@ -186,7 +248,7 @@ export default function StudentOrderRealtime() {
           <div className="relative z-10">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-black/60 mb-1">Your Token</p>
             <h2 className="text-7xl font-black tracking-tighter leading-none" style={{ fontFamily: "'IBM Plex Mono', monospace" }} data-testid="token-number">
-              #{order.tokenNumber || order.orderId.slice(-4).toUpperCase()}
+              #{order.tokenNumber || (order.orderId || "").slice(-4).toUpperCase()}
             </h2>
             <div className="mt-3 inline-flex items-center gap-2">
               <span className="badge-brutal bg-white/80">
