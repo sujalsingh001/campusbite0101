@@ -45,6 +45,7 @@ export default function StudentOrderRealtime() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [isCancelling, setIsCancelling] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [retryTrigger, setRetryTrigger] = useState(0);
   const activeUser = currentUser?.role === "student"
     ? currentUser
@@ -62,17 +63,43 @@ export default function StudentOrderRealtime() {
       return undefined;
     }
 
+    setOrderLoading(true);
+    setLoadError("");
+    console.log("[StudentOrder] subscribing", { orderId });
+
+    const loadFailsafe = window.setTimeout(() => {
+      console.warn("[StudentOrder] load timed out after 8s", { orderId });
+      setOrderLoading(false);
+      setLoadingTimeout(true);
+    }, 8000);
+
     const unsubscribe = subscribeToStudentOrder(
       activeUser,
       orderId,
       (data) => {
-        setOrder(data);
+        console.log("[StudentOrder] loaded", { orderId, found: Boolean(data) });
+        setOrder(data || null);
+        setLoadError("");
         setOrderLoading(false);
+        setLoadingTimeout(false);
       },
-      () => setOrderLoading(false),
+      (err) => {
+        console.error("[StudentOrder] subscription error:", err?.response?.status || err?.code || err?.message || err);
+        setOrder(null);
+        setOrderLoading(false);
+        setLoadingTimeout(false);
+        if (err?.response?.status === 404) {
+          setLoadError("not_found");
+        } else if (err?.response?.status >= 400 && err?.response?.status < 600) {
+          setLoadError("failed");
+        }
+      },
     );
 
-    return unsubscribe;
+    return () => {
+      window.clearTimeout(loadFailsafe);
+      unsubscribe();
+    };
   }, [activeUser, canLoadOrder, loading, orderId, retryTrigger]);
 
   useEffect(() => {
@@ -89,6 +116,8 @@ export default function StudentOrderRealtime() {
 
   const handleRetry = () => {
     setLoadingTimeout(false);
+    setLoadError("");
+    setOrder(null);
     setOrderLoading(true);
     setRetryTrigger((prev) => prev + 1);
   };
@@ -220,7 +249,14 @@ export default function StudentOrderRealtime() {
   if (!order) {
     return (
       <div className="mobile-wrapper flex flex-col items-center justify-center min-h-screen p-6 text-center">
-        <p className="font-bold text-gray-500 mb-4" data-testid="order-not-found-msg">Order not found</p>
+        <p className="font-bold text-gray-500 mb-4" data-testid="order-not-found-msg">
+          {loadError === "failed" ? "Unable to load order right now" : "Order not found"}
+        </p>
+        {loadError === "failed" && (
+          <button onClick={handleRetry} className="btn-primary mb-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" data-testid="retry-btn">
+            Retry
+          </button>
+        )}
         <button onClick={() => navigate("/student/menu")} className="btn-primary shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" data-testid="back-to-menu-btn">Back to Menu</button>
       </div>
     );

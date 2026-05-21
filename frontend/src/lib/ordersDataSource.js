@@ -175,6 +175,19 @@ function normalizeRailwayOrders(orders) {
   return orders.map(normalizeRailwayOrder);
 }
 
+function withFetchTimeout(promise, timeoutMs = 12000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error("Request timeout")), timeoutMs);
+    }),
+  ]);
+}
+
+function getStudentUserId(activeUser) {
+  return activeUser?.uid || auth.currentUser?.uid || "";
+}
+
 function createPollingSubscription(load, onData, onError) {
   let active = true;
   let inFlight = false;
@@ -186,7 +199,7 @@ function createPollingSubscription(load, onData, onError) {
 
     inFlight = true;
     try {
-      const data = await load();
+      const data = await withFetchTimeout(load());
       if (active) {
         onData(data);
       }
@@ -484,49 +497,47 @@ export function subscribeToOrdersRealtime(filters, onData, onError, options = {}
 
 export function subscribeToStudentOrders(activeUser, onData, onError) {
   const role = activeUser?.role || "student";
-  const source = getOrderDataSource({
-    role,
-    firebaseUid: activeUser?.uid,
-    canteenId: getActiveCanteenId(activeUser),
-  });
+  const userId = getStudentUserId(activeUser);
 
-  if (canUseRailwayFallback({ activeUser, role })) {
+  if (hasBackendToken()) {
+    debugFirebaseLog("Student orders subscription via Railway", { hasUserId: Boolean(userId) });
     return createRailwayRealtimeSubscription({}, onData, onError, role);
   }
 
-  if (source === ORDER_SOURCES.FIREBASE) {
+  if (USE_FIREBASE_ORDERS && userId) {
+    debugFirebaseLog("Student orders subscription via Firebase", { userId });
     return createFirebaseSubscriptionWithRailwayFallback(
-      { userId: activeUser?.uid },
+      { userId },
       onData,
       onError,
       { activeUser, role },
     );
   }
 
+  debugFirebaseLog("Student orders subscription via Railway (no firebase uid)");
   return createRailwayRealtimeSubscription({}, onData, onError, role);
 }
 
 export function subscribeToStudentOrder(activeUser, orderId, onData, onError) {
   const role = activeUser?.role || "student";
-  const source = getOrderDataSource({
-    role,
-    firebaseUid: activeUser?.uid,
-    canteenId: getActiveCanteenId(activeUser),
-  });
+  const userId = getStudentUserId(activeUser);
 
-  if (canUseRailwayFallback({ activeUser, role })) {
+  if (hasBackendToken()) {
+    debugFirebaseLog("Student order subscription via Railway", { orderId });
     return createRailwayRealtimeSubscription({ orderId }, onData, onError, role);
   }
 
-  if (source === ORDER_SOURCES.FIREBASE) {
+  if (USE_FIREBASE_ORDERS && userId) {
+    debugFirebaseLog("Student order subscription via Firebase", { orderId, userId });
     return createFirebaseSubscriptionWithRailwayFallback(
-      { userId: activeUser?.uid, orderId },
+      { userId, orderId },
       onData,
       onError,
       { activeUser, role },
     );
   }
 
+  debugFirebaseLog("Student order subscription via Railway (no firebase uid)", { orderId });
   return createRailwayRealtimeSubscription({ orderId }, onData, onError, role);
 }
 

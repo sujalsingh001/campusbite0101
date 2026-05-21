@@ -37,24 +37,38 @@ export default function StudentOrdersRealtime() {
       return undefined;
     }
 
+    setOrdersLoading(true);
+    const loadFailsafe = window.setTimeout(() => {
+      console.warn("[StudentOrders] load timed out after 8s");
+      setOrdersLoading(false);
+    }, 8000);
+
     const unsubscribe = subscribeToStudentOrders(
       activeUser,
       (data) => {
-        setOrders(data);
+        const normalizedOrders = Array.isArray(data) ? data : (data ? [data] : []);
+        console.log("[StudentOrders] loaded", normalizedOrders.length, "orders");
+        setOrders(normalizedOrders);
         setError("");
         setOrdersLoading(false);
       },
       (err) => {
-        console.error("StudentOrdersRealtime subscription error:", err);
+        console.error("[StudentOrders] subscription error:", err?.response?.status || err?.code || err?.message || err);
         const status = err?.response?.status;
         if (status && status >= 400 && status < 600) {
           setError("Unable to load orders right now");
+        } else {
+          setError("");
         }
+        setOrders([]);
         setOrdersLoading(false);
       },
     );
 
-    return unsubscribe;
+    return () => {
+      window.clearTimeout(loadFailsafe);
+      unsubscribe();
+    };
   }, [activeUser, canLoadOrders, loading]);
 
   if (loading || ordersLoading) {
