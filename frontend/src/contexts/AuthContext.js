@@ -81,13 +81,14 @@ async function readFirebaseAuthClaims(firebaseUser) {
   }
 }
 
-function setupRecaptcha(authInstance, containerId = "recaptcha-container") {
+function setupRecaptcha(authInstance, containerId = "student-auth-submit-button") {
   if (typeof window !== "undefined" && window.recaptchaVerifier) {
     window.recaptchaVerifier.clear();
   }
 
-  window.recaptchaVerifier = new RecaptchaVerifier(authInstance, containerId, {
-    size: "normal",
+  const targetId = document.getElementById(containerId) ? containerId : "recaptcha-container";
+  window.recaptchaVerifier = new RecaptchaVerifier(authInstance, targetId, {
+    size: targetId === containerId ? "invisible" : "normal",
   });
 
   return window.recaptchaVerifier;
@@ -432,7 +433,7 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const sendOTP = useCallback(async (phoneNumber, recaptchaContainerId = "recaptcha-container") => {
+  const sendOTP = useCallback(async (phoneNumber, recaptchaContainerId = "student-auth-submit-button") => {
     if (!firebaseUserRef.current?.uid) {
       throw new Error("Please wait, loading user...");
     }

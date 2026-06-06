@@ -345,6 +345,7 @@ export default function StudentLogin() {
           {success && <p className="text-sm font-bold text-green-700 bg-green-50 border-2 border-green-300 rounded-lg p-2" data-testid="auth-success">{success}</p>}
 
           <button
+            id="student-auth-submit-button"
             onClick={activeTab === "login" ? handleStudentLogin : handleRegister}
             disabled={loading || sendingOtp || (activeTab === "register" && otpSent && !otpVerified)}
             className="w-full btn-primary text-center text-lg flex items-center justify-center gap-2 disabled:opacity-50"
