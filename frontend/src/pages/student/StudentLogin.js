@@ -99,15 +99,25 @@ export default function StudentLogin() {
       return;
     }
 
+    const trimmedPhone = phone.trim();
+    if (trimmedPhone && !/^\d{10}$/.test(trimmedPhone)) {
+      setError("Enter a valid 10-digit phone number");
+      return;
+    }
+
     setLoading(true);
     try {
-      await registerStudent(trimmedEmail, password, { auid });
-      if (phone.trim()) {
+      await registerStudent(trimmedEmail, password, { auid, phoneNumber: trimmedPhone });
+      if (trimmedPhone) {
         setLoading(false);
         setSendingOtp(true);
-        await sendOTP(phone);
-        setOtpSent(true);
-        setSuccess("OTP sent to your phone number");
+        try {
+          await sendOTP(trimmedPhone);
+          setOtpSent(true);
+          setSuccess("OTP sent to your phone number");
+        } catch {
+          navigate("/student/menu");
+        }
         return;
       }
       navigate("/student/menu");
