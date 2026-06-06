@@ -2,11 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UtensilsCrossed, ArrowLeft, Loader2, Mail, Lock, Phone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
 export default function StudentLogin() {
   const navigate = useNavigate();
-  const { user, currentUser, studentLogin, registerStudent, sendOTP, verifyOTP, resetStudentPassword } = useAuth();
+  const { user, studentLogin, registerStudent, resetStudentPassword } = useAuth();
   const [activeTab, setActiveTab] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,33 +14,12 @@ export default function StudentLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
-  const [sendingOtp, setSendingOtp] = useState(false);
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
 
   useEffect(() => {
-    if (user?.role === "student" && (activeTab === "login" || otpVerified || !phone.trim())) {
+    if (user?.role === "student") {
       navigate("/student/menu");
     }
-  }, [activeTab, navigate, otpVerified, phone, user]);
-
-  useEffect(() => {
-    if (activeTab !== "register") {
-      setOtpCode("");
-      setOtpSent(false);
-      setOtpVerified(false);
-      setSuccess("");
-      return;
-    }
-
-    if (currentUser?.phoneVerified) {
-      setOtpVerified(true);
-      setOtpSent(true);
-      setSuccess("Phone number already verified");
-    }
-  }, [activeTab, currentUser?.phoneVerified]);
+  }, [navigate, user]);
 
   const handleAuidChange = (e) => {
     const val = e.target.value.toUpperCase();
@@ -108,63 +86,11 @@ export default function StudentLogin() {
     setLoading(true);
     try {
       await registerStudent(trimmedEmail, password, { auid, phoneNumber: trimmedPhone });
-      if (trimmedPhone) {
-        setLoading(false);
-        setSendingOtp(true);
-        try {
-          await sendOTP(trimmedPhone);
-          setOtpSent(true);
-          setSuccess("OTP sent to your phone number");
-        } catch (err) {
-          setSuccess("Account created. Phone verification is pending.");
-          setError(err.message || "Unable to send OTP");
-        }
-        return;
-      }
       navigate("/student/menu");
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
       setLoading(false);
-      setSendingOtp(false);
-    }
-  };
-
-  const handleSendOtp = async () => {
-    setError("");
-    setSuccess("");
-
-    if (!phone.trim()) {
-      setError("Enter your phone number first");
-      return;
-    }
-
-    setSendingOtp(true);
-    try {
-      await sendOTP(phone);
-      setOtpSent(true);
-      setSuccess("OTP sent to your phone number");
-    } catch (err) {
-      setError(err.message || "Unable to send OTP");
-    } finally {
-      setSendingOtp(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    setError("");
-    setSuccess("");
-
-    setVerifyingOtp(true);
-    try {
-      await verifyOTP(otpCode);
-      setOtpVerified(true);
-      setSuccess("Phone number verified successfully");
-      navigate("/student/menu");
-    } catch (err) {
-      setError(err.message || "Unable to verify OTP");
-    } finally {
-      setVerifyingOtp(false);
     }
   };
 
@@ -280,9 +206,6 @@ export default function StudentLogin() {
                   setPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
                   setError("");
                   setSuccess("");
-                  setOtpCode("");
-                  setOtpSent(false);
-                  setOtpVerified(false);
                 }}
                 placeholder="e.g. 9876543210"
                 className="input-brutal"
@@ -308,54 +231,19 @@ export default function StudentLogin() {
             />
           </div>
 
-          {activeTab === "register" && otpSent && (
-            <div className="space-y-2">
-              <label className="text-sm font-bold uppercase tracking-wider text-gray-700">OTP Verification</label>
-              <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode} containerClassName="justify-start">
-                <InputOTPGroup>
-                  <InputOTPSlot index={0} className="w-10 h-12 border-2 border-black bg-white" />
-                  <InputOTPSlot index={1} className="w-10 h-12 border-2 border-black bg-white" />
-                  <InputOTPSlot index={2} className="w-10 h-12 border-2 border-black bg-white" />
-                  <InputOTPSlot index={3} className="w-10 h-12 border-2 border-black bg-white" />
-                  <InputOTPSlot index={4} className="w-10 h-12 border-2 border-black bg-white" />
-                  <InputOTPSlot index={5} className="w-10 h-12 border-2 border-black bg-white" />
-                </InputOTPGroup>
-              </InputOTP>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleVerifyOtp}
-                  disabled={verifyingOtp || otpCode.length !== 6 || otpVerified}
-                  className="flex-1 bg-white border-[3px] border-black rounded-xl p-3 text-center font-bold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal disabled:opacity-50"
-                  data-testid="verify-otp-button"
-                >
-                  {verifyingOtp ? "Verifying..." : (otpVerified ? "Verified" : "Verify OTP")}
-                </button>
-                <button
-                  onClick={handleSendOtp}
-                  disabled={sendingOtp || otpVerified}
-                  className="flex-1 bg-white border-[3px] border-black rounded-xl p-3 text-center font-bold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] btn-brutal disabled:opacity-50"
-                  data-testid="resend-otp-button"
-                >
-                  {sendingOtp ? "Sending..." : "Resend OTP"}
-                </button>
-              </div>
-            </div>
-          )}
-
           {error && <p className="text-sm font-bold text-red-500 bg-red-50 border-2 border-red-300 rounded-lg p-2" data-testid="auth-error">{error}</p>}
           {success && <p className="text-sm font-bold text-green-700 bg-green-50 border-2 border-green-300 rounded-lg p-2" data-testid="auth-success">{success}</p>}
 
           <button
-            id="student-auth-submit-button"
             onClick={activeTab === "login" ? handleStudentLogin : handleRegister}
-            disabled={loading || sendingOtp || (activeTab === "register" && otpSent && !otpVerified)}
+            disabled={loading}
             className="w-full btn-primary text-center text-lg flex items-center justify-center gap-2 disabled:opacity-50"
             data-testid="auth-submit-button"
           >
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             {loading
               ? (activeTab === "login" ? "Logging in..." : "Creating account...")
-              : (activeTab === "login" ? "Login" : (otpSent && !otpVerified ? "Awaiting OTP" : "Create Account"))}
+              : (activeTab === "login" ? "Login" : "Create Account")}
           </button>
 
           {activeTab === "login" && (
@@ -368,8 +256,6 @@ export default function StudentLogin() {
             </button>
           )}
         </div>
-
-        <div id="recaptcha-container"></div>
 
         <div className="flex items-center gap-3 justify-center pt-4">
           <div className="w-3 h-3 bg-lime-400 border-2 border-[#2B4798] rounded-full" />

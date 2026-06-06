@@ -5,9 +5,7 @@ import {
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
-  RecaptchaVerifier,
   getIdTokenResult,
-  linkWithPhoneNumber,
 } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import API from '@/lib/api';
@@ -44,19 +42,6 @@ function isStaffIdentity(value) {
   return value?.role === "canteen_staff";
 }
 
-function normalizePhoneNumber(phoneNumber) {
-  const rawValue = (phoneNumber || "").trim();
-  if (!rawValue) {
-    throw new Error("Phone number is required");
-  }
-
-  if (!/^\d{10}$/.test(rawValue)) {
-    throw new Error("Enter a valid 10-digit phone number");
-  }
-
-  return `+91${rawValue}`;
-}
-
 function normalizeStudentAuid(auid) {
   return (auid || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
 }
@@ -81,29 +66,12 @@ async function readFirebaseAuthClaims(firebaseUser) {
   }
 }
 
-function setupRecaptcha(authInstance, containerId = "student-auth-submit-button") {
-  if (typeof window !== "undefined" && window.recaptchaVerifier) {
-    window.recaptchaVerifier.clear();
-  }
-
-  const targetId = document.getElementById(containerId) ? containerId : "recaptcha-container";
-  window.recaptchaVerifier = new RecaptchaVerifier(authInstance, targetId, {
-    size: targetId === containerId ? "invisible" : "normal",
-  });
-
-  return window.recaptchaVerifier;
-}
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [resolvedCurrentUser, setResolvedCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const firebaseUserRef = useRef(null);
   const profileUnsubscribeRef = useRef(null);
-  const recaptchaVerifierRef = useRef(null);
-  const confirmationResultRef = useRef(null);
-  const pendingPhoneNumberRef = useRef("");
-  const otpBypassEnabled = process.env.REACT_APP_FIREBASE_TEST_OTP_BYPASS === "true";
 
   const saveStudentProfile = useCallback(async (firebaseUser, profileData = {}) => {
     if (!firebaseUser?.uid) {
@@ -433,129 +401,6 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const sendOTP = useCallback(async (phoneNumber, recaptchaContainerId = "student-auth-submit-button") => {
-    if (!firebaseUserRef.current?.uid) {
-      throw new Error("Please wait, loading user...");
-    }
-
-    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
-
-    try {
-      confirmationResultRef.current = null;
-
-      if (recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current.clear();
-        recaptchaVerifierRef.current = null;
-      }
-
-      recaptchaVerifierRef.current = setupRecaptcha(auth, recaptchaContainerId);
-      await recaptchaVerifierRef.current.render();
-
-      confirmationResultRef.current = await linkWithPhoneNumber(
-        firebaseUserRef.current,
-        normalizedPhoneNumber,
-        recaptchaVerifierRef.current,
-      );
-      pendingPhoneNumberRef.current = normalizedPhoneNumber;
-
-      return { phoneNumber: normalizedPhoneNumber };
-    } catch (err) {
-      console.error("Firebase phone OTP send failed:", err);
-
-      if (recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current.clear();
-        recaptchaVerifierRef.current = null;
-      }
-
-      if (err?.code === "auth/invalid-phone-number") {
-        throw new Error("Enter a valid 10-digit phone number");
-      }
-      if (err?.code === "auth/too-many-requests") {
-        throw new Error("Too many OTP requests. Please try again later");
-      }
-      if (err?.code === "auth/network-request-failed") {
-        throw new Error("Network issue while sending OTP");
-      }
-      if (err?.code === "auth/captcha-check-failed") {
-        throw new Error("Unable to verify reCAPTCHA. Please try again");
-      }
-      if (err?.code === "auth/provider-already-linked") {
-        throw new Error("Phone number is already verified");
-      }
-      if (err?.code === "auth/billing-not-enabled") {
-        throw new Error("Phone OTP is unavailable until Firebase billing is enabled");
-      }
-      throw new Error("Unable to send OTP right now");
-    }
-  }, []);
-
-  const verifyOTP = useCallback(async (code) => {
-    const normalizedCode = (code || "").trim();
-    if (!/^\d{6}$/.test(normalizedCode)) {
-      throw new Error("Enter a valid 6-digit OTP");
-    }
-
-    if (!firebaseUserRef.current?.uid) {
-      throw new Error("Please wait, loading user...");
-    }
-
-    try {
-      if (otpBypassEnabled && normalizedCode === "123456" && pendingPhoneNumberRef.current) {
-        await setDoc(doc(db, "users", firebaseUserRef.current.uid), {
-          email: firebaseUserRef.current.email || "",
-          phoneNumber: pendingPhoneNumberRef.current,
-          phoneVerified: true,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-
-        await applyFirebaseUser(firebaseUserRef.current, {
-          phoneNumber: pendingPhoneNumberRef.current,
-          phoneVerified: true,
-        });
-
-        return {
-          phoneNumber: pendingPhoneNumberRef.current,
-          phoneVerified: true,
-        };
-      }
-
-      if (!confirmationResultRef.current || !pendingPhoneNumberRef.current) {
-        throw new Error("Send OTP first");
-      }
-
-      const result = await confirmationResultRef.current.confirm(normalizedCode);
-      firebaseUserRef.current = result.user || firebaseUserRef.current;
-
-      await setDoc(doc(db, "users", firebaseUserRef.current.uid), {
-        email: firebaseUserRef.current.email || "",
-        phoneNumber: pendingPhoneNumberRef.current,
-        phoneVerified: true,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-
-      await applyFirebaseUser(firebaseUserRef.current, {
-        phoneNumber: pendingPhoneNumberRef.current,
-        phoneVerified: true,
-      });
-
-      return {
-        phoneNumber: pendingPhoneNumberRef.current,
-        phoneVerified: true,
-      };
-    } catch (err) {
-      if (err?.code === "auth/invalid-verification-code") {
-        throw new Error("OTP is incorrect");
-      }
-      if (err?.code === "auth/code-expired") {
-        throw new Error("OTP has expired. Please resend it");
-      }
-      if (err?.code === "auth/network-request-failed") {
-        throw new Error("Network issue while verifying OTP");
-      }
-      throw new Error(err.message || "Unable to verify OTP");
-    }
-  }, [applyFirebaseUser, otpBypassEnabled]);
-
   const staffLogin = useCallback(async (email, password) => {
     const { data } = await API.post('/auth/staff/login', { email, password });
     localStorage.setItem('campusbite_token', data.token);
@@ -579,12 +424,6 @@ export function AuthProvider({ children }) {
     }
     currentUser = null;
     firebaseUserRef.current = null;
-    confirmationResultRef.current = null;
-    pendingPhoneNumberRef.current = "";
-    if (recaptchaVerifierRef.current) {
-      recaptchaVerifierRef.current.clear();
-      recaptchaVerifierRef.current = null;
-    }
     setResolvedCurrentUser(null);
     setUser(null);
   }, [setUser, setResolvedCurrentUser]);
@@ -595,13 +434,11 @@ export function AuthProvider({ children }) {
     loading, 
     studentLogin, 
     registerStudent,
-    sendOTP,
-    verifyOTP,
     resetStudentPassword,
     staffLogin, 
     adminLogin, 
     logout 
-  }), [user, resolvedCurrentUser, loading, studentLogin, registerStudent, sendOTP, verifyOTP, resetStudentPassword, staffLogin, adminLogin, logout]);
+  }), [user, resolvedCurrentUser, loading, studentLogin, registerStudent, resetStudentPassword, staffLogin, adminLogin, logout]);
 
   return (
     <AuthContext.Provider value={value}>
