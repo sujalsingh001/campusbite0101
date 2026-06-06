@@ -115,8 +115,9 @@ export default function StudentLogin() {
           await sendOTP(trimmedPhone);
           setOtpSent(true);
           setSuccess("OTP sent to your phone number");
-        } catch {
-          navigate("/student/menu");
+        } catch (err) {
+          setSuccess("Account created. Phone verification is pending.");
+          setError(err.message || "Unable to send OTP");
         }
         return;
       }

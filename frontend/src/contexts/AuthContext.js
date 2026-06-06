@@ -482,6 +482,9 @@ export function AuthProvider({ children }) {
       if (err?.code === "auth/provider-already-linked") {
         throw new Error("Phone number is already verified");
       }
+      if (err?.code === "auth/billing-not-enabled") {
+        throw new Error("Phone OTP is unavailable until Firebase billing is enabled");
+      }
       throw new Error("Unable to send OTP right now");
     }
   }, []);
